@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use super::{theme, Action, Screen};
+use super::{theme, Action, ConfirmAction, Screen, ScreenId};
 use crate::app::App;
 
 pub struct ConfigScreen {
@@ -196,32 +196,20 @@ impl ConfigScreen {
                 Action::None
             }
             ConfigItem::RemoveManagedMods => {
-                if let (Some(wp), Some(dp)) = (&app.workshop_path, &app.dayz_path) {
-                    match crate::mods::remove_managed_mods(wp, dp) {
-                        Ok((count, _)) => {
-                            app.status_message =
-                                Some(format!("Removed {count} managed mods"));
-                        }
-                        Err(e) => {
-                            app.status_message = Some(format!("Error: {e}"));
-                        }
-                    }
+                if app.workshop_path.is_some() && app.dayz_path.is_some() {
+                    Action::PushScreen(ScreenId::Confirm(ConfirmAction::RemoveManagedMods))
+                } else {
+                    app.status_message = Some("Steam library path not detected".into());
+                    Action::None
                 }
-                Action::None
             }
             ConfigItem::RemoveModLinks => {
-                if let Some(dp) = &app.dayz_path {
-                    match crate::mods::remove_mod_symlinks(dp) {
-                        Ok(count) => {
-                            app.status_message =
-                                Some(format!("Removed {count} mod symlinks"));
-                        }
-                        Err(e) => {
-                            app.status_message = Some(format!("Error: {e}"));
-                        }
-                    }
+                if app.dayz_path.is_some() {
+                    Action::PushScreen(ScreenId::Confirm(ConfirmAction::RemoveModLinks))
+                } else {
+                    app.status_message = Some("Steam library path not detected".into());
+                    Action::None
                 }
-                Action::None
             }
             ConfigItem::RefreshServers => {
                 app.status_message = Some("Refreshing server list...".into());
@@ -464,5 +452,58 @@ fn format_option_value(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(value) => value.clone(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::profile::Profile;
+    use crate::ui::{ConfirmAction, ScreenId};
+    use std::path::PathBuf;
+
+    fn test_app() -> App {
+        let data_dir = std::env::temp_dir().join("dayz-ctl-tests-config-screen");
+        let mut app = App::new(
+            Config {
+                path: data_dir.join("dayz-ctl.conf"),
+                data_dir: data_dir.clone(),
+                server_db_path: data_dir.join("servers.json"),
+                news_db_path: data_dir.join("news.json"),
+                mods_db_path: data_dir.join("mods.json"),
+                profile_path: data_dir.join("profile.json"),
+                api_url: "https://example.test".into(),
+                request_timeout: 10,
+                server_request_timeout: 30,
+                server_db_ttl: 300,
+                news_db_ttl: 3600,
+                history_size: 10,
+                steamcmd_enabled: true,
+                filter_mod_limit: 10,
+                filter_players_limit: 50,
+                filter_players_slots: 60,
+                applications_dir: PathBuf::from("/tmp"),
+            },
+            Profile::default(),
+        );
+        app.dayz_path = Some(data_dir.join("dayz"));
+        app.workshop_path = Some(data_dir.join("workshop"));
+        app
+    }
+
+    #[test]
+    fn destructive_config_actions_require_confirmation() {
+        let mut screen = ConfigScreen::new();
+        let mut app = test_app();
+
+        assert_eq!(
+            screen.execute_item(ConfigItem::RemoveManagedMods, &mut app),
+            Action::PushScreen(ScreenId::Confirm(ConfirmAction::RemoveManagedMods))
+        );
+        assert_eq!(
+            screen.execute_item(ConfigItem::RemoveModLinks, &mut app),
+            Action::PushScreen(ScreenId::Confirm(ConfirmAction::RemoveModLinks))
+        );
     }
 }
