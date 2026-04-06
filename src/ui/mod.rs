@@ -74,6 +74,9 @@ pub enum ConfirmAction {
 pub trait Screen {
     fn render(&mut self, f: &mut Frame, app: &App);
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action;
+    fn shows_status_bar(&self) -> bool {
+        true
+    }
     fn on_enter(&mut self, _app: &mut App) {}
     fn on_tick(&mut self, _app: &mut App) -> Action {
         Action::None

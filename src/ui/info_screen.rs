@@ -19,8 +19,9 @@ impl InfoScreen {
 
 impl Screen for InfoScreen {
     fn render(&mut self, f: &mut Frame, _app: &App) {
+        f.render_widget(Clear, f.area());
+        f.render_widget(Block::default(), f.area());
         let area = centered_rect(70, 40, f.area());
-        f.render_widget(Clear, area);
 
         let mut lines = vec![Line::from("")];
         lines.push(Line::from(Span::styled(&self.data.title, theme::TITLE)));
@@ -43,6 +44,10 @@ impl Screen for InfoScreen {
             )
             .wrap(Wrap { trim: true });
         f.render_widget(para, area);
+    }
+
+    fn shows_status_bar(&self) -> bool {
+        false
     }
 
     fn handle_key(&mut self, key: KeyEvent, _app: &mut App) -> Action {

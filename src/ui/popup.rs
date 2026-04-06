@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use std::fs;
@@ -56,31 +57,18 @@ impl ConfirmScreen {
 
 impl Screen for ConfirmScreen {
     fn render(&mut self, f: &mut Frame, _app: &App) {
+        f.render_widget(Clear, f.area());
+        f.render_widget(Block::default(), f.area());
         let area = centered_rect(50, 30, f.area());
-        f.render_widget(Clear, area);
-
-        let yes_style = if self.selected {
-            theme::SELECTED
-        } else {
-            theme::NORMAL
-        };
-        let no_style = if !self.selected {
-            theme::SELECTED
-        } else {
-            theme::NORMAL
-        };
-
-        let yes_text = format!(" {} ", self.yes_label());
-        let no_text = format!(" {} ", self.no_label());
         let lines = vec![
             Line::from(""),
             Line::from(Span::styled(self.message(), theme::WARNING)),
             Line::from(""),
             Line::from(vec![
                 Span::raw("    "),
-                Span::styled(yes_text, yes_style),
+                choice_span(self.yes_label(), self.selected),
                 Span::raw("    "),
-                Span::styled(no_text, no_style),
+                choice_span(self.no_label(), !self.selected),
             ]),
         ];
 
@@ -93,6 +81,10 @@ impl Screen for ConfirmScreen {
             )
             .wrap(Wrap { trim: true });
         f.render_widget(para, area);
+    }
+
+    fn shows_status_bar(&self) -> bool {
+        false
     }
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
@@ -121,6 +113,20 @@ impl Screen for ConfirmScreen {
             _ => Action::None,
         }
     }
+}
+
+fn choice_span(label: &str, selected: bool) -> Span<'static> {
+    let text = if selected {
+        format!("[ {label} ]")
+    } else {
+        format!("  {label}  ")
+    };
+    let style = if selected {
+        theme::WARNING.add_modifier(Modifier::BOLD)
+    } else {
+        theme::DIM
+    };
+    Span::styled(text, style)
 }
 
 impl ConfirmScreen {
@@ -236,6 +242,9 @@ mod tests {
     use crate::profile::Profile;
     use crate::ui::{InfoScreenData, ScreenId};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::widgets::Paragraph;
     use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs as unix_fs;
@@ -351,6 +360,22 @@ mod tests {
             combined_path.push(&original_path);
         }
         EnvVarGuard::set("PATH", &combined_path)
+    }
+
+    fn buffer_lines(backend: &TestBackend) -> Vec<String> {
+        (0..backend.buffer().area.height)
+            .map(|y| {
+                (0..backend.buffer().area.width)
+                    .map(|x| {
+                        backend
+                            .buffer()
+                            .cell((x, y))
+                            .expect("buffer cell")
+                            .symbol()
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     #[test]
@@ -552,5 +577,45 @@ mod tests {
 
         drop(home_env);
         fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn confirm_render_clears_the_full_frame_and_uses_explicit_button_labels() {
+        let mut screen = ConfirmScreen::new(ConfirmAction::UpdateModsBeforeLaunch);
+        screen.selected = true;
+        let app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create terminal");
+        let seed = vec![Line::from("x".repeat(80)); 24];
+
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new(seed.clone()), frame.area()))
+            .expect("seed terminal");
+
+        terminal
+            .draw(|frame| screen.render(frame, &app))
+            .expect("render confirm screen");
+
+        let lines = buffer_lines(terminal.backend());
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((0, 0))
+                .expect("top-left cell")
+                .symbol(),
+            " "
+        );
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((0, 23))
+                .expect("bottom-left cell")
+                .symbol(),
+            " "
+        );
+        assert!(lines.iter().any(|line| line.contains("[ Update ]")));
+        assert!(lines.iter().any(|line| line.contains("  Skip  ")));
     }
 }

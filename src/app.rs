@@ -502,13 +502,15 @@ impl App {
     }
 
     pub fn render(&mut self, f: &mut Frame) {
+        let mut shows_status_bar = true;
         // Split rendering: take the screen out, render, put back
         if let Some(mut screen) = self.screen_stack.pop() {
             screen.render(f, self);
+            shows_status_bar = screen.shows_status_bar();
             self.screen_stack.push(screen);
         }
 
-        if let Some(msg) = &self.status_message {
+        if shows_status_bar && let Some(msg) = &self.status_message {
             render_status_bar(f, msg);
         }
     }
@@ -1304,8 +1306,8 @@ fn render_status_bar(f: &mut Frame, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use crate::api::offline_releases::ReleaseInfo as OfflineReleaseInfo;
+    use crate::config::Config;
     use crate::offline::discovery::OfflineMission;
     use crate::offline::storage::{release_dir_for_tag, save_offline_state};
     use crate::offline::types::{MissionSource, OfflineState};
@@ -1315,8 +1317,10 @@ mod tests {
     use crate::server::types::{ServerEndpoint, ServerMod};
     use crate::steam::ItemState;
     use crate::ui::offline_browser::OfflineBrowserScreen;
-    use crate::ui::offline_setup::OfflineSetupScreen;
     use crate::ui::main_menu::MainMenuScreen;
+    use crate::ui::offline_setup::OfflineSetupScreen;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::ffi::OsString;
@@ -1355,6 +1359,18 @@ mod tests {
             },
             Profile::default(),
         )
+    }
+
+    fn buffer_line(backend: &TestBackend, y: u16) -> String {
+        (0..backend.buffer().area.width)
+            .map(|x| {
+                backend
+                    .buffer()
+                    .cell((x, y))
+                    .expect("buffer cell")
+                    .symbol()
+            })
+            .collect()
     }
 
     fn install_managed_release(config: &Config, tag: &str, missions: &[&str]) {
@@ -2880,5 +2896,23 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn modal_screens_hide_the_status_bar() {
+        let mut app = test_app();
+        app.status_message = Some("Loaded 13975 servers".into());
+        app.process_action(Action::PushScreen(ScreenId::Confirm(
+            ConfirmAction::UpdateModsBeforeLaunch,
+        )));
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create terminal");
+        terminal
+            .draw(|frame| app.render(frame))
+            .expect("render app");
+
+        let bottom_line = buffer_line(terminal.backend(), 23);
+        assert!(!bottom_line.contains("Loaded 13975 servers"));
     }
 }

@@ -50,6 +50,10 @@ impl Screen for PasswordPromptScreen {
         f.render_widget(para, area);
     }
 
+    fn shows_status_bar(&self) -> bool {
+        false
+    }
+
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             app.set_launch_password(None);

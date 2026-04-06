@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
@@ -25,19 +26,9 @@ impl UpdatePromptScreen {
 
 impl Screen for UpdatePromptScreen {
     fn render(&mut self, f: &mut Frame, app: &App) {
+        f.render_widget(Clear, f.area());
+        f.render_widget(Block::default(), f.area());
         let area = centered_rect(70, 40, f.area());
-        f.render_widget(Clear, area);
-
-        let yes_style = if self.selected_yes {
-            theme::SELECTED
-        } else {
-            theme::NORMAL
-        };
-        let no_style = if !self.selected_yes {
-            theme::SELECTED
-        } else {
-            theme::NORMAL
-        };
 
         let version = app
             .available_update
@@ -60,9 +51,9 @@ impl Screen for UpdatePromptScreen {
             Line::from(""),
             Line::from(vec![
                 Span::raw("    "),
-                Span::styled(" Yes ", yes_style),
+                choice_span("Yes", self.selected_yes),
                 Span::raw("    "),
-                Span::styled(" No ", no_style),
+                choice_span("No", !self.selected_yes),
             ]),
         ];
 
@@ -75,6 +66,10 @@ impl Screen for UpdatePromptScreen {
             )
             .wrap(Wrap { trim: true });
         f.render_widget(para, area);
+    }
+
+    fn shows_status_bar(&self) -> bool {
+        false
     }
 
     fn handle_key(&mut self, key: KeyEvent, _app: &mut App) -> Action {
@@ -114,6 +109,20 @@ impl Screen for UpdatePromptScreen {
             Action::None
         }
     }
+}
+
+fn choice_span(label: &str, selected: bool) -> Span<'static> {
+    let text = if selected {
+        format!("[ {label} ]")
+    } else {
+        format!("  {label}  ")
+    };
+    let style = if selected {
+        theme::WARNING.add_modifier(Modifier::BOLD)
+    } else {
+        theme::DIM
+    };
+    Span::styled(text, style)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
