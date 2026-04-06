@@ -50,7 +50,7 @@ pub fn parse_latest_release(body: &str) -> Result<Option<ReleaseInfo>> {
         .filter(|release| !release.draft && !release.prerelease)
         .max_by(|a, b| compare_versions(&a.tag_name, &b.tag_name))
         .map(|release| ReleaseInfo {
-            tag: normalize_version(&release.tag_name),
+            tag: release.tag_name,
             tarball_url: release.tarball_url,
         }))
 }
@@ -129,19 +129,19 @@ mod tests {
         let json = r#"
         [
           {
-            "tag_name": "0.4.0",
+            "tag_name": "v0.4.0",
             "draft": false,
             "prerelease": false,
             "tarball_url": "https://example.test/0.4.0.tar.gz"
           },
           {
-            "tag_name": "0.6.0",
+            "tag_name": "v0.6.0",
             "draft": false,
             "prerelease": false,
             "tarball_url": "https://example.test/0.6.0.tar.gz"
           },
           {
-            "tag_name": "0.5.0",
+            "tag_name": "v0.5.0",
             "draft": false,
             "prerelease": false,
             "tarball_url": "https://example.test/0.5.0.tar.gz"
@@ -152,8 +152,27 @@ mod tests {
         let release = parse_latest_release(json)
             .expect("parse releases")
             .expect("stable release");
-        assert_eq!(release.tag, "0.6.0");
+        assert_eq!(release.tag, "v0.6.0");
         assert_eq!(release.tarball_url, "https://example.test/0.6.0.tar.gz");
+    }
+
+    #[test]
+    fn preserves_raw_upstream_tag_name() {
+        let json = r#"
+        [
+          {
+            "tag_name": "v1.0.0",
+            "draft": false,
+            "prerelease": false,
+            "tarball_url": "https://example.test/v1.0.0.tar.gz"
+          }
+        ]
+        "#;
+
+        let release = parse_latest_release(json)
+            .expect("parse releases")
+            .expect("stable release");
+        assert_eq!(release.tag, "v1.0.0");
     }
 
     #[test]
