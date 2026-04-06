@@ -143,8 +143,18 @@ fn run_direct_connect(
         println!("Connecting to {} ({}:{})...", server.name, ip, port);
         launch::launch_dayz(&args)?;
     } else {
-        eprintln!("Server {ip}:{port} not found in server list");
-        std::process::exit(1);
+        let player = profile
+            .player
+            .clone()
+            .unwrap_or_else(|| "Survivor".into());
+        let extra_args = profile.get_launch_args();
+
+        profile.add_history(&format!("{ip}:{port}"), ip, port, app.config.history_size);
+        profile.save(&app.config.profile_path)?;
+
+        let args = launch::build_direct_connect_args(ip, port, &player, &extra_args, None);
+        println!("Connecting directly to {ip}:{port}...");
+        launch::launch_dayz(&args)?;
     }
 
     Ok(())

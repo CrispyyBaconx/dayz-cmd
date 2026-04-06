@@ -4,6 +4,14 @@ use std::process::Command;
 
 pub const DAYZ_GAME_ID: &str = "221100";
 
+fn build_connect_args(ip: &str, port: u16, password: Option<&str>) -> Vec<String> {
+    let mut args = vec![format!("-connect={ip}"), format!("-port={port}")];
+    if let Some(pw) = password {
+        args.push(format!("-password={pw}"));
+    }
+    args
+}
+
 pub fn build_launch_args(
     server: Option<&Server>,
     mod_ids: &[u64],
@@ -22,16 +30,23 @@ pub fn build_launch_args(
     }
 
     if let Some(server) = server {
-        args.push(format!("-connect={}", server.endpoint.ip));
-        args.push(format!("-port={}", server.game_port));
-
-        if server.password {
-            if let Some(pw) = password {
-                args.push(format!("-password={pw}"));
-            }
-        }
+        let pw = if server.password { password } else { None };
+        args.extend(build_connect_args(&server.endpoint.ip, server.game_port, pw));
     }
 
+    args.extend(extra_args.iter().cloned());
+    args
+}
+
+pub fn build_direct_connect_args(
+    ip: &str,
+    port: u16,
+    player_name: &str,
+    extra_args: &[String],
+    password: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec!["-nolauncher".to_string(), format!("-name={player_name}")];
+    args.extend(build_connect_args(ip, port, password));
     args.extend(extra_args.iter().cloned());
     args
 }
@@ -122,4 +137,57 @@ pub fn desktop_entry_exists(
 ) -> bool {
     let filename = format!("dayz-cli-{ip}-{game_port}.desktop");
     applications_dir.join(&filename).exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::Server;
+    use crate::server::types::ServerEndpoint;
+
+    fn sample_server() -> Server {
+        Server {
+            name: "Test Server".into(),
+            players: 12,
+            max_players: 60,
+            time: "12:00".into(),
+            time_acceleration: Some(4.0),
+            map: "chernarusplus".into(),
+            password: false,
+            battleye: true,
+            vac: true,
+            first_person_only: false,
+            shard: "public".into(),
+            version: "1.0".into(),
+            environment: "w".into(),
+            game_port: 2302,
+            endpoint: ServerEndpoint {
+                ip: "1.2.3.4".into(),
+                port: 27016,
+            },
+            mods: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn builds_launch_args_for_known_server() {
+        let server = sample_server();
+        let args = build_launch_args(Some(&server), &[123, 456], "Survivor", &["-nosplash".into()], None);
+
+        assert!(args.contains(&"-connect=1.2.3.4".to_string()));
+        assert!(args.contains(&"-port=2302".to_string()));
+        assert!(args.contains(&"-mod=@123;@456".to_string()));
+        assert!(args.contains(&"-name=Survivor".to_string()));
+    }
+
+    #[test]
+    fn builds_launch_args_for_raw_direct_connect() {
+        let args =
+            build_direct_connect_args("5.6.7.8", 2402, "Survivor", &["-nosplash".into()], None);
+
+        assert!(args.contains(&"-connect=5.6.7.8".to_string()));
+        assert!(args.contains(&"-port=2402".to_string()));
+        assert!(!args.iter().any(|arg| arg.starts_with("-mod=")));
+        assert!(args.contains(&"-name=Survivor".to_string()));
+    }
 }

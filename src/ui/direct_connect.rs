@@ -3,7 +3,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
-use super::{theme, Action, Screen, ScreenId};
+use super::{theme, Action, Screen};
 use crate::app::App;
 
 pub struct DirectConnectScreen {
@@ -132,7 +132,9 @@ impl Screen for DirectConnectScreen {
                     .iter()
                     .position(|s| s.endpoint.ip == self.ip && s.game_port == port)
                 {
-                    return Action::PushScreen(ScreenId::ServerDetail(idx));
+                    app.selected_server = Some(idx);
+                    app.direct_connect_target = None;
+                    return Action::LaunchGame;
                 }
 
                 if let Some(idx) = app
@@ -140,12 +142,14 @@ impl Screen for DirectConnectScreen {
                     .iter()
                     .position(|s| s.endpoint.ip == self.ip && s.endpoint.port == port)
                 {
-                    return Action::PushScreen(ScreenId::ServerDetail(idx));
+                    app.selected_server = Some(idx);
+                    app.direct_connect_target = None;
+                    return Action::LaunchGame;
                 }
 
-                app.status_message =
-                    Some(format!("Server {}:{} not found in server list", self.ip, port));
-                Action::PopScreen
+                app.selected_server = None;
+                app.direct_connect_target = Some((self.ip.clone(), port));
+                Action::LaunchGame
             }
             _ => Action::None,
         }

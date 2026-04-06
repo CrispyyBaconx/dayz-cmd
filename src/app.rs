@@ -24,6 +24,7 @@ pub struct App {
     pub steam: Option<SteamHandle>,
     pub status_message: Option<String>,
     pub selected_server: Option<usize>,
+    pub direct_connect_target: Option<(String, u16)>,
     screen_stack: Vec<Box<dyn Screen>>,
 }
 
@@ -46,6 +47,7 @@ impl App {
             steam: None,
             status_message: None,
             selected_server: None,
+            direct_connect_target: None,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
         }
     }
@@ -248,6 +250,7 @@ impl App {
         let extra_args = self.profile.get_launch_args();
 
         let server = self.selected_server.and_then(|i| self.servers.get(i));
+        let direct_target = self.direct_connect_target.take();
         let mod_ids: Vec<u64> = server
             .map(|s| s.mods.iter().map(|m| m.steam_workshop_id).collect())
             .unwrap_or_default();
@@ -267,15 +270,23 @@ impl App {
                 self.config.history_size,
             );
             let _ = self.profile.save(&self.config.profile_path);
+        } else if let Some((ip, port)) = direct_target.as_ref() {
+            self.profile
+                .add_history(&format!("{ip}:{port}"), ip, *port, self.config.history_size);
+            let _ = self.profile.save(&self.config.profile_path);
         }
 
-        let args = crate::launch::build_launch_args(
-            self.selected_server.and_then(|i| self.servers.get(i)),
-            &mod_ids,
-            &player,
-            &extra_args,
-            None,
-        );
+        let args = if let Some((ip, port)) = direct_target.as_ref() {
+            crate::launch::build_direct_connect_args(ip, *port, &player, &extra_args, None)
+        } else {
+            crate::launch::build_launch_args(
+                self.selected_server.and_then(|i| self.servers.get(i)),
+                &mod_ids,
+                &player,
+                &extra_args,
+                None,
+            )
+        };
 
         match crate::launch::launch_dayz(&args) {
             Ok(()) => {
