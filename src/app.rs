@@ -1877,7 +1877,8 @@ mod tests {
         let dayz_path = temp_path("app-offline-dayz");
         let workshop_path = temp_path("app-offline-workshop");
         let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
-        let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
+        let runtime_target = crate::offline::sync::runtime_target_name(&mission_id);
+        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         fs::write(
             mission_dir.join("CommunityOfflineClient.c"),
@@ -1913,7 +1914,7 @@ mod tests {
         let args = read_launch_args(&capture);
         assert!(
             args.iter()
-                .any(|arg| arg == &format!("-mission=./Missions/{mission_id}"))
+                .any(|arg| arg == &format!("-mission=./Missions/{runtime_target}"))
         );
         assert!(args.iter().any(|arg| arg == "-mod=@1564026768"));
         assert!(args.iter().any(|arg| arg == "-filePatching"));
@@ -1924,7 +1925,7 @@ mod tests {
         let content = fs::read_to_string(
             dayz_path
                 .join("Missions")
-                .join(&mission_id)
+                .join(&runtime_target)
                 .join("core")
                 .join("CommunityOfflineClient.c"),
         )
@@ -1948,7 +1949,8 @@ mod tests {
         let dayz_path = temp_path("app-offline-resume-dayz");
         let workshop_path = temp_path("app-offline-resume-workshop");
         let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
-        let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
+        let runtime_target = crate::offline::sync::runtime_target_name(&mission_id);
+        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         let client_file = mission_dir.join("CommunityOfflineClient.c");
         fs::write(&client_file, "bool HIVE_ENABLED = false;\n")
@@ -1977,7 +1979,7 @@ mod tests {
         let args = read_launch_args(&capture);
         assert!(
             args.iter()
-                .any(|arg| arg == &format!("-mission=./Missions/{mission_id}"))
+                .any(|arg| arg == &format!("-mission=./Missions/{runtime_target}"))
         );
         assert!(args.iter().any(|arg| arg == "-mod=@1564026768"));
         assert_eq!(
@@ -2000,7 +2002,8 @@ mod tests {
         let path_env = prepend_path(&bin_dir);
         let dayz_path = temp_path("app-offline-order-dayz");
         let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
-        let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
+        let runtime_target = crate::offline::sync::runtime_target_name(&mission_id);
+        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         let client_file = mission_dir.join("CommunityOfflineClient.c");
         fs::write(&client_file, "bool HIVE_ENABLED = false;\n")

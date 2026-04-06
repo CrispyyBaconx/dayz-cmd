@@ -71,7 +71,7 @@ pub fn build_direct_connect_args_with_mods(
     password: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec!["-nolauncher".to_string(), format!("-name={player_name}")];
-    if let Some(mod_arg) = build_mod_arg(mod_ids) {
+    if let Some(mod_arg) = build_mod_arg(&mod_ids) {
         args.push(mod_arg);
     }
     args.extend(build_connect_args(ip, port, password));
@@ -106,7 +106,8 @@ pub fn apply_offline_spawn_setting(
         return Ok(());
     };
 
-    crate::offline::launch::set_hive_enabled(dayz_path, mission_id, spawn_enabled)
+    let runtime_target = crate::offline::sync::runtime_target_name(mission_id);
+    crate::offline::launch::set_hive_enabled(dayz_path, &runtime_target, spawn_enabled)
 }
 
 pub fn build_offline_launch_args(
@@ -115,14 +116,16 @@ pub fn build_offline_launch_args(
     player_name: &str,
     extra_args: &[String],
 ) -> Vec<String> {
+    let runtime_target = crate::offline::sync::runtime_target_name(mission_id);
+    let mod_ids = crate::offline::launch::inject_required_mods(mission_id, mod_ids);
     let mut args = vec![
         "-nolauncher".to_string(),
         format!("-name={player_name}"),
         "-filePatching".to_string(),
-        format!("-mission=./Missions/{mission_id}"),
+        format!("-mission=./Missions/{runtime_target}"),
     ];
 
-    if let Some(mod_arg) = build_mod_arg(mod_ids) {
+    if let Some(mod_arg) = build_mod_arg(&mod_ids) {
         args.push(mod_arg);
     }
 
@@ -219,6 +222,7 @@ mod tests {
     use super::*;
     use crate::server::Server;
     use crate::server::types::ServerEndpoint;
+    use crate::offline::sync::runtime_target_name;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -334,7 +338,10 @@ mod tests {
         assert!(args.contains(&"-filePatching".to_string()));
         assert!(
             args.contains(
-                &"-mission=./Missions/DayZCommunityOfflineMode.ChernarusPlus".to_string()
+                &format!(
+                    "-mission=./Missions/{}",
+                    runtime_target_name("DayZCommunityOfflineMode.ChernarusPlus")
+                )
             )
         );
         assert!(args.contains(&"-mod=@123;@456".to_string()));
@@ -343,11 +350,32 @@ mod tests {
     }
 
     #[test]
+    fn builds_offline_launch_args_for_namalsk_runtime_target_with_required_mods() {
+        let args = build_offline_launch_args(
+            "DayZCommunityOfflineMode.Namalsk",
+            &[123],
+            "Survivor",
+            &[],
+        );
+
+        assert!(
+            args.contains(
+                &format!(
+                    "-mission=./Missions/{}",
+                    runtime_target_name("DayZCommunityOfflineMode.Namalsk")
+                )
+            )
+        );
+        assert!(args.contains(&"-mod=@123;@2289456201;@2289461232".to_string()));
+    }
+
+    #[test]
     fn offline_spawn_setting_toggles_mission_client_file() {
         let root = temp_path("offline-spawn");
+        let runtime_target = runtime_target_name("DayZCommunityOfflineMode.ChernarusPlus");
         let client_file = root
             .join("Missions")
-            .join("DayZCommunityOfflineMode.ChernarusPlus")
+            .join(&runtime_target)
             .join("core")
             .join("CommunityOfflineClient.c");
         fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
@@ -365,9 +393,10 @@ mod tests {
     #[test]
     fn offline_spawn_setting_succeeds_when_state_is_already_correct() {
         let root = temp_path("offline-spawn-idempotent");
+        let runtime_target = runtime_target_name("DayZCommunityOfflineMode.ChernarusPlus");
         let client_file = root
             .join("Missions")
-            .join("DayZCommunityOfflineMode.ChernarusPlus")
+            .join(&runtime_target)
             .join("core")
             .join("CommunityOfflineClient.c");
         fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
@@ -387,9 +416,10 @@ mod tests {
     #[test]
     fn offline_spawn_setting_errors_when_marker_is_missing() {
         let root = temp_path("offline-spawn-missing-marker");
+        let runtime_target = runtime_target_name("DayZCommunityOfflineMode.ChernarusPlus");
         let client_file = root
             .join("Missions")
-            .join("DayZCommunityOfflineMode.ChernarusPlus")
+            .join(&runtime_target)
             .join("core")
             .join("CommunityOfflineClient.c");
         fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");

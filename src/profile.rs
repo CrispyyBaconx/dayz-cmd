@@ -352,6 +352,25 @@ mod tests {
     }
 
     #[test]
+    fn offline_prefs_expose_remembered_mod_ids_and_spawn_toggle() {
+        let mut profile = Profile::default();
+        profile.offline.insert(
+            "managed:DayZCommunityOfflineMode.Namalsk".into(),
+            OfflineMissionPrefs {
+                mod_ids: vec![1564026768, 2289456201],
+                spawn_enabled: false,
+            },
+        );
+
+        let prefs = profile
+            .offline_prefs("managed:DayZCommunityOfflineMode.Namalsk")
+            .expect("offline prefs");
+
+        assert_eq!(prefs.mod_ids, vec![1564026768, 2289456201]);
+        assert!(!prefs.spawn_enabled);
+    }
+
+    #[test]
     fn merges_legacy_profile_without_duplicate_favorites_or_history() {
         let temp_dir = std::env::temp_dir().join(format!(
             "dayz-cmd-profile-merge-{}-{}",
