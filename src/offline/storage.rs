@@ -42,14 +42,11 @@ pub fn mission_identity_key(
     source: MissionSource,
     mission: &str,
     source_path: Option<&Path>,
-) -> String {
+) -> Option<String> {
     match source {
-        MissionSource::Managed => format!("managed:{mission}"),
+        MissionSource::Managed => Some(format!("managed:{mission}")),
         MissionSource::Existing => {
-            let identity = source_path
-                .map(canonical_path_hash)
-                .unwrap_or_else(|| canonical_path_hash(Path::new(mission)));
-            format!("existing:{identity}")
+            source_path.map(|path| format!("existing:{}", canonical_path_hash(path)))
         }
     }
 }
@@ -111,22 +108,32 @@ mod tests {
                 "DayZCommunityOfflineMode.ChernarusPlus",
                 None
             ),
-            "managed:DayZCommunityOfflineMode.ChernarusPlus"
+            Some("managed:DayZCommunityOfflineMode.ChernarusPlus".into())
         );
 
         let first = mission_identity_key(
             MissionSource::Existing,
             "CommunityOfflineClient",
             Some(&mission_dir),
-        );
+        )
+        .expect("existing identity");
         let second = mission_identity_key(
             MissionSource::Existing,
             "CommunityOfflineClient",
             Some(&canonical),
-        );
+        )
+        .expect("existing identity");
 
         assert_eq!(first, second);
         assert!(first.starts_with("existing:"));
+    }
+
+    #[test]
+    fn existing_mission_identity_requires_a_real_source_path() {
+        assert_eq!(
+            mission_identity_key(MissionSource::Existing, "CommunityOfflineClient", None),
+            None
+        );
     }
 
     fn test_root(name: &str) -> PathBuf {
