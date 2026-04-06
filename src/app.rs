@@ -3,14 +3,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::api::news::NewsArticle;
+use crate::api::offline_releases::ReleaseInfo as OfflineReleaseInfo;
 use crate::api::releases::{ReleaseInfo, UpdateAvailability};
 use crate::config::Config;
 use crate::mods::ModsDb;
+use crate::offline::discovery::OfflineMission;
+use crate::offline::storage::{load_offline_state, save_offline_state};
+use crate::offline::types::{OfflineMissionPrefs, OfflineState};
 use crate::profile::Profile;
 use crate::server::Server;
 use crate::steam::{ItemState, SteamHandle};
 use crate::ui::server_browser::{BrowseSource, ServerBrowserScreen};
 use crate::ui::*;
+
+type OfflineReleaseFetcher = fn(u64) -> anyhow::Result<Option<OfflineReleaseInfo>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LaunchTarget {
@@ -98,6 +104,11 @@ pub struct App {
     pub workshop_path: Option<PathBuf>,
     pub steam: Option<SteamHandle>,
     pub status_message: Option<String>,
+    pub(crate) offline_state: OfflineState,
+    pub(crate) offline_missions: Vec<OfflineMission>,
+    pub(crate) offline_release: Option<OfflineReleaseInfo>,
+    pub(crate) offline_release_error: Option<String>,
+    pub(crate) offline_release_fetcher: OfflineReleaseFetcher,
     pub(crate) launch_prep: Option<LaunchPrep>,
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pub available_update: Option<ReleaseInfo>,
@@ -126,6 +137,11 @@ impl App {
             workshop_path: None,
             steam: None,
             status_message: None,
+            offline_state: OfflineState::default(),
+            offline_missions: Vec::new(),
+            offline_release: None,
+            offline_release_error: None,
+            offline_release_fetcher: crate::api::offline_releases::fetch_latest_release,
             launch_prep: None,
             server_runtime: HashMap::new(),
             available_update: None,
@@ -166,6 +182,34 @@ impl App {
         });
     }
 
+    pub(crate) fn prepare_offline_launch(&mut self, mission_id: &str) {
+        let Some(mission) = self
+            .offline_missions
+            .iter()
+            .find(|mission| mission.id == mission_id)
+            .cloned()
+        else {
+            self.status_message = Some(format!("Offline mission {mission_id} is unavailable"));
+            return;
+        };
+
+        let prefs = self
+            .profile
+            .offline_prefs(&mission.id)
+            .cloned()
+            .unwrap_or_default();
+
+        self.store_launch_prep(LaunchPrep {
+            target: LaunchTarget::Offline {
+                mission_id: mission.id,
+                runtime_name: mission.runtime_name,
+            },
+            mod_ids: prefs.mod_ids,
+            password: None,
+            offline_spawn_enabled: Some(prefs.spawn_enabled),
+        });
+    }
+
     pub(crate) fn set_launch_password(&mut self, password: Option<String>) {
         if let Some(prep) = self.launch_prep.as_mut() {
             prep.password = password;
@@ -178,6 +222,107 @@ impl App {
             Some(LaunchTarget::DirectConnect { .. })
         ) {
             self.launch_prep = None;
+        }
+    }
+
+    pub(crate) fn clear_offline_launch_prep(&mut self) {
+        if matches!(
+            self.launch_prep.as_ref().map(|prep| &prep.target),
+            Some(LaunchTarget::Offline { .. })
+        ) {
+            self.launch_prep = None;
+        }
+    }
+
+    pub(crate) fn save_offline_preferences(
+        &mut self,
+        mission_id: &str,
+        mod_ids: Vec<u64>,
+        spawn_enabled: bool,
+    ) {
+        self.profile.offline.insert(
+            mission_id.to_string(),
+            OfflineMissionPrefs {
+                mod_ids,
+                spawn_enabled,
+            },
+        );
+
+        if let Err(error) = self.profile.save(&self.config.profile_path) {
+            self.status_message = Some(format!("Failed to save offline preferences: {error}"));
+        }
+    }
+
+    pub(crate) fn refresh_offline_browser(&mut self) {
+        self.offline_state = load_offline_state(&self.config).unwrap_or_default();
+
+        match crate::offline::discovery::discover_offline_missions(
+            &self.config,
+            self.dayz_path.as_deref(),
+        ) {
+            Ok(missions) => self.offline_missions = missions,
+            Err(error) => {
+                self.offline_missions.clear();
+                self.status_message = Some(format!("Failed to discover offline missions: {error}"));
+            }
+        }
+
+        match (self.offline_release_fetcher)(self.config.request_timeout) {
+            Ok(release) => {
+                self.offline_release_error = None;
+                self.offline_release = release;
+                if let Some(release) = &self.offline_release {
+                    self.offline_state.latest_known_tag = Some(release.tag.clone());
+                    let _ = save_offline_state(&self.config, &self.offline_state);
+                }
+            }
+            Err(error) => {
+                self.offline_release = None;
+                self.offline_release_error = Some(error.to_string());
+                self.status_message = Some(format!(
+                    "Offline release metadata unavailable: {error}"
+                ));
+            }
+        }
+    }
+
+    fn install_or_update_offline_release(&mut self) {
+        let Some(release) = self.offline_release.clone() else {
+            self.status_message = Some("Offline release metadata unavailable".into());
+            return;
+        };
+
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(self.config.request_timeout))
+            .user_agent(format!("dayz-cmd {}", crate::config::VERSION))
+            .build()
+        {
+            Ok(client) => client,
+            Err(error) => {
+                self.status_message = Some(format!("Failed to create offline installer client: {error}"));
+                return;
+            }
+        };
+
+        match crate::offline::install::install_release(&self.config, &release, &client) {
+            Ok(result) => {
+                self.offline_state = load_offline_state(&self.config).unwrap_or_default();
+                self.offline_state.installed_tag = Some(result.tag.clone());
+                self.offline_state.latest_known_tag = Some(result.tag.clone());
+                self.offline_state.managed_missions = result.managed_missions;
+                let _ = save_offline_state(&self.config, &self.offline_state);
+                if let Ok(missions) = crate::offline::discovery::discover_offline_missions(
+                    &self.config,
+                    self.dayz_path.as_deref(),
+                ) {
+                    self.offline_missions = missions;
+                }
+                self.offline_release_error = None;
+                self.status_message = Some(format!("Installed offline release {}", result.tag));
+            }
+            Err(error) => {
+                self.status_message = Some(format!("Failed to install offline release: {error}"));
+            }
         }
     }
 
@@ -418,6 +563,13 @@ impl App {
                 }
                 self.refresh_installed_mods();
             }
+            Action::OfflineInstallOrUpdate => {
+                if let Some(pending) = self.pending_launch.as_ref() {
+                    self.status_message = Some(refresh_busy_message(&pending.kind).into());
+                    return;
+                }
+                self.install_or_update_offline_release();
+            }
         }
     }
 
@@ -436,9 +588,11 @@ impl App {
             ScreenId::Config => Box::new(config_screen::ConfigScreen::new()),
             ScreenId::News => Box::new(news::NewsScreen::new()),
             ScreenId::DirectConnect => Box::new(direct_connect::DirectConnectScreen::new()),
+            ScreenId::OfflineBrowser => Box::new(offline_browser::OfflineBrowserScreen::new()),
             ScreenId::DirectConnectSetup => {
                 Box::new(direct_connect_setup::DirectConnectSetupScreen::new())
             }
+            ScreenId::OfflineSetup => Box::new(offline_setup::OfflineSetupScreen::new()),
             ScreenId::PasswordPrompt => Box::new(password_prompt::PasswordPromptScreen::new()),
             ScreenId::FilterSelect => Box::new(filter::FilterSelectScreen::new(self)),
             ScreenId::UpdatePrompt => Box::new(update_prompt::UpdatePromptScreen::new()),
@@ -1097,16 +1251,23 @@ fn render_status_bar(f: &mut Frame, msg: &str) {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use crate::api::offline_releases::ReleaseInfo as OfflineReleaseInfo;
+    use crate::offline::storage::{release_dir_for_tag, save_offline_state};
+    use crate::offline::types::OfflineState;
     use crate::mods::ModsDb;
     use crate::profile::Profile;
     use crate::server::Server;
     use crate::server::types::{ServerEndpoint, ServerMod};
     use crate::steam::ItemState;
+    use crate::ui::offline_browser::OfflineBrowserScreen;
+    use crate::ui::offline_setup::OfflineSetupScreen;
+    use crate::ui::main_menu::MainMenuScreen;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::ffi::OsString;
     use std::fs;
     use std::io::Read;
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, MutexGuard};
@@ -1139,6 +1300,37 @@ mod tests {
             },
             Profile::default(),
         )
+    }
+
+    fn install_managed_release(config: &Config, tag: &str, missions: &[&str]) {
+        let release_dir = release_dir_for_tag(config, tag);
+        for mission in missions {
+            fs::create_dir_all(release_dir.join(format!("Missions/{mission}/core")))
+                .expect("create managed mission");
+            fs::write(
+                release_dir.join(format!("Missions/{mission}/core/CommunityOfflineClient.c")),
+                "HIVE_ENABLED = true;",
+            )
+            .expect("write managed mission");
+        }
+    }
+
+    fn install_existing_missions(root: &Path, missions: &[&str]) {
+        for mission in missions {
+            fs::create_dir_all(root.join(format!("DayZ/Missions/{mission}/core")))
+                .expect("create existing mission");
+            fs::write(
+                root.join(format!(
+                    "DayZ/Missions/{mission}/core/CommunityOfflineClient.c"
+                )),
+                "HIVE_ENABLED = true;",
+            )
+            .expect("write existing mission");
+        }
+    }
+
+    fn no_release(_: u64) -> anyhow::Result<Option<crate::api::offline_releases::ReleaseInfo>> {
+        Ok(None)
     }
 
     fn sample_server(password: bool) -> Server {
@@ -2166,5 +2358,203 @@ mod tests {
 
         drop(path_env);
         fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn main_menu_exposes_offline_mode() {
+        let mut screen = MainMenuScreen::new();
+        let mut app = test_app();
+
+        screen.on_enter(&mut app);
+
+        assert!(screen.items.iter().any(|item| item.label == "Offline Mode"));
+    }
+
+    #[test]
+    fn app_routes_offline_install_update_setup_and_launch_correctly() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-offline-route-bin");
+        setup_launch_bin(&bin_dir, false);
+        let path_env = prepend_path(&bin_dir);
+        let capture = temp_path("app-offline-route-args");
+        let _capture_env = EnvVarGuard::set("FAKE_STEAM_ARGS", capture.as_os_str());
+        let root = temp_path("app-offline-route");
+        let dayz_path = root.join("DayZ");
+        let workshop_path = root.join("Workshop");
+        fs::create_dir_all(&dayz_path).expect("create dayz path");
+        fs::create_dir_all(&workshop_path).expect("create workshop path");
+        let mission_id = "managed:DayZCommunityOfflineMode.ChernarusPlus";
+        let runtime_name = "DayZCommunityOfflineMode.ChernarusPlus";
+        let runtime_target = crate::offline::sync::runtime_target_name(runtime_name);
+        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
+        fs::create_dir_all(&mission_dir).expect("create runtime mission dir");
+        fs::write(
+            mission_dir.join("CommunityOfflineClient.c"),
+            "bool HIVE_ENABLED = false;\n",
+        )
+        .expect("write runtime mission file");
+
+        let mut app = test_app();
+        app.config.data_dir = root.clone();
+        app.config.profile_path = root.join("profile.json");
+        app.dayz_path = Some(dayz_path.clone());
+        app.workshop_path = Some(workshop_path.clone());
+        install_managed_release(
+            &app.config,
+            "v1.0.0",
+            &[runtime_name],
+        );
+        save_offline_state(
+            &app.config,
+            &OfflineState {
+                installed_tag: None,
+                latest_known_tag: Some("v1.0.0".into()),
+                managed_missions: vec![runtime_name.into()],
+                last_check_ts: None,
+            },
+        )
+        .expect("save offline state");
+        app.offline_release_fetcher = no_release;
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::Offline {
+                mission_id: mission_id.into(),
+                runtime_name: runtime_name.into(),
+            },
+            mod_ids: Vec::new(),
+            password: None,
+            offline_spawn_enabled: None,
+        });
+        app.skip_running_check_once = true;
+
+        let mut browser = OfflineBrowserScreen::new();
+        browser.on_enter(&mut app);
+        browser.list_state.select(Some(0));
+        let action = browser.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter),
+            &mut app,
+        );
+        assert_eq!(action, Action::PushScreen(ScreenId::OfflineSetup));
+        app.process_action(action);
+        assert_eq!(app.screen_stack.len(), 2);
+
+        let mut setup = OfflineSetupScreen::new();
+        setup.on_enter(&mut app);
+        let action = setup.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Enter),
+            &mut app,
+        );
+        assert_eq!(action, Action::LaunchGame);
+        app.process_action(action);
+
+        let args = read_launch_args(&capture);
+        assert!(
+            args.iter()
+                .any(|arg| arg == &format!("-mission=./Missions/{runtime_target}"))
+        );
+        assert_eq!(
+            fs::read_to_string(
+                dayz_path
+                    .join("Missions")
+                    .join(&runtime_target)
+                    .join("core")
+                    .join("CommunityOfflineClient.c")
+            )
+            .expect("read runtime mission file"),
+            "bool HIVE_ENABLED = false;\n"
+        );
+
+        drop(path_env);
+        fs::remove_dir_all(root).expect("remove temp root");
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    fn offline_release_tarball(include_client_file: bool) -> Vec<u8> {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+        use tar::Builder;
+
+        let mut tar_data = Vec::new();
+        {
+            let mut builder = Builder::new(&mut tar_data);
+            let mission_root =
+                "Arkensor-DayZCommunityOfflineMode-123/Missions/DayZCommunityOfflineMode.ChernarusPlus";
+            let mut dir_header = tar::Header::new_gnu();
+            dir_header.set_entry_type(tar::EntryType::Directory);
+            dir_header.set_mode(0o755);
+            dir_header.set_size(0);
+            dir_header.set_cksum();
+            builder
+                .append_data(&mut dir_header, format!("{mission_root}/core/"), &[][..])
+                .expect("append core dir");
+            if include_client_file {
+                let content = b"HIVE_ENABLED = true;";
+                let mut header = tar::Header::new_gnu();
+                header.set_size(content.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder
+                    .append_data(
+                        &mut header,
+                        format!("{mission_root}/core/CommunityOfflineClient.c"),
+                        &content[..],
+                    )
+                    .expect("append file");
+            }
+            builder.finish().expect("finish tar");
+        }
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar_data).expect("compress tar");
+        encoder.finish().expect("finish gzip")
+    }
+
+    fn start_tarball_server() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        let payload = offline_release_tarball(true);
+
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            stream.write_all(header.as_bytes()).expect("write header");
+            stream.write_all(&payload).expect("write payload");
+        });
+
+        format!("http://{addr}/archive.tar.gz")
+    }
+
+    #[test]
+    fn app_routes_offline_install_update_actions() {
+        let root = temp_path("app-offline-install");
+        fs::create_dir_all(&root).expect("create temp root");
+        let mut app = test_app();
+        app.config.data_dir = root.clone();
+        app.config.mods_db_path = root.join("mods.json");
+        app.offline_release = Some(OfflineReleaseInfo {
+            tag: "v1.0.0".into(),
+            tarball_url: start_tarball_server(),
+        });
+
+        app.process_action(Action::OfflineInstallOrUpdate);
+
+        assert_eq!(app.offline_state.installed_tag.as_deref(), Some("v1.0.0"));
+        assert!(
+            app.offline_missions
+                .iter()
+                .any(|mission| mission.runtime_name == "DayZCommunityOfflineMode.ChernarusPlus")
+        );
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("offline")
+        );
+
+        fs::remove_dir_all(root).expect("remove temp root");
     }
 }

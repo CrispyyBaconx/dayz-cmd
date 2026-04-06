@@ -5,6 +5,8 @@ pub mod filter;
 pub mod info_screen;
 pub mod main_menu;
 pub mod news;
+pub mod offline_browser;
+pub mod offline_setup;
 pub mod password_prompt;
 pub mod popup;
 pub mod server_browser;
@@ -28,6 +30,7 @@ pub enum Action {
     RunSelfUpdate,
     CheckForUpdates,
     RefreshInstalledMods,
+    OfflineInstallOrUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,7 +44,9 @@ pub enum ScreenId {
     Config,
     News,
     DirectConnect,
+    OfflineBrowser,
     DirectConnectSetup,
+    OfflineSetup,
     PasswordPrompt,
     FilterSelect,
     UpdatePrompt,
