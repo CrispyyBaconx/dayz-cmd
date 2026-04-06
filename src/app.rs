@@ -21,10 +21,10 @@ pub(crate) enum LaunchTarget {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LaunchPrep {
-    target: LaunchTarget,
-    mod_ids: Vec<u64>,
-    password: Option<String>,
-    offline_spawn_enabled: Option<bool>,
+    pub(crate) target: LaunchTarget,
+    pub(crate) mod_ids: Vec<u64>,
+    pub(crate) password: Option<String>,
+    pub(crate) offline_spawn_enabled: Option<bool>,
 }
 
 struct PendingLaunch {
@@ -54,8 +54,6 @@ pub struct App {
     pub workshop_path: Option<PathBuf>,
     pub steam: Option<SteamHandle>,
     pub status_message: Option<String>,
-    pub selected_server: Option<usize>,
-    pub direct_connect_target: Option<(String, u16)>,
     pub launch_prep: Option<LaunchPrep>,
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pub available_update: Option<ReleaseInfo>,
@@ -83,8 +81,6 @@ impl App {
             workshop_path: None,
             steam: None,
             status_message: None,
-            selected_server: None,
-            direct_connect_target: None,
             launch_prep: None,
             server_runtime: HashMap::new(),
             available_update: None,
@@ -306,11 +302,7 @@ impl App {
     }
 
     fn do_launch(&mut self) {
-        let prep = if let Some(prep) = self.launch_prep.as_ref() {
-            prep.clone()
-        } else if let Some(prep) = self.legacy_launch_prep() {
-            prep
-        } else {
+        let Some(prep) = self.launch_prep.as_ref() else {
             self.status_message = Some("No launch target selected".into());
             return;
         };
@@ -326,7 +318,10 @@ impl App {
             return;
         }
 
-        let mut prep = self.launch_prep.take().unwrap_or(prep);
+        let Some(mut prep) = self.launch_prep.take() else {
+            self.status_message = Some("No launch target selected".into());
+            return;
+        };
         let player = self
             .profile
             .player
@@ -373,13 +368,34 @@ impl App {
                 (args, history_entry)
             }
             LaunchTarget::Offline { mission_id } => {
-                let _ = offline_spawn_enabled;
-                self.status_message = Some(format!(
-                    "Offline launch is not wired through App::do_launch yet ({mission_id})"
-                ));
-                self.asked_update_mods = false;
-                self.update_mods_before_launch = false;
-                return;
+                let Some(dayz_path) = self.dayz_path.as_ref() else {
+                    self.status_message =
+                        Some("Cannot launch offline: DayZ path not detected".into());
+                    self.asked_update_mods = false;
+                    self.update_mods_before_launch = false;
+                    return;
+                };
+
+                if let Err(e) = crate::launch::apply_offline_spawn_setting(
+                    dayz_path,
+                    &mission_id,
+                    offline_spawn_enabled,
+                ) {
+                    self.status_message = Some(format!(
+                        "Failed to update offline spawn setting: {e}"
+                    ));
+                    self.asked_update_mods = false;
+                    self.update_mods_before_launch = false;
+                    return;
+                }
+
+                let args = crate::launch::build_offline_launch_args(
+                    &mission_id,
+                    &mod_ids,
+                    &player,
+                    &extra_args,
+                );
+                (args, None)
             }
         };
 
@@ -440,30 +456,6 @@ impl App {
         self.asked_update_mods = false;
         self.update_mods_before_launch = false;
         self.finish_launch(args, history_entry);
-    }
-
-    fn legacy_launch_prep(&self) -> Option<LaunchPrep> {
-        if let Some(idx) = self.selected_server {
-            let server = self.servers.get(idx)?;
-            return Some(LaunchPrep {
-                target: LaunchTarget::KnownServer(idx),
-                mod_ids: server.mods.iter().map(|m| m.steam_workshop_id).collect(),
-                password: None,
-                offline_spawn_enabled: None,
-            });
-        }
-
-        self.direct_connect_target
-            .as_ref()
-            .map(|(ip, port)| LaunchPrep {
-                target: LaunchTarget::DirectConnect {
-                    ip: ip.clone(),
-                    port: *port,
-                },
-                mod_ids: Vec::new(),
-                password: None,
-                offline_spawn_enabled: None,
-            })
     }
 
     fn finish_launch(&mut self, args: Vec<String>, history_entry: Option<(String, String, u16)>) {
@@ -761,6 +753,10 @@ mod tests {
                 .map(|line| line.to_string())
                 .collect::<Vec<_>>()
         }
+
+        fn was_launched(&self) -> bool {
+            self.capture.exists()
+        }
     }
 
     impl Drop for FakeSteam {
@@ -894,7 +890,6 @@ mod tests {
             password: None,
             offline_spawn_enabled: None,
         });
-        app.selected_server = Some(0);
 
         app.do_launch();
 
@@ -940,7 +935,6 @@ mod tests {
             password: Some("secret".into()),
             offline_spawn_enabled: None,
         });
-        app.direct_connect_target = Some(("5.6.7.8".into(), 2402));
 
         app.do_launch();
 
@@ -970,7 +964,6 @@ mod tests {
             password: Some("one-shot".into()),
             offline_spawn_enabled: Some(true),
         });
-        app.direct_connect_target = Some(("9.8.7.6".into(), 2502));
 
         app.do_launch();
 
@@ -978,10 +971,19 @@ mod tests {
             .launched_args()
             .iter()
             .any(|arg| arg == "-password=one-shot"));
-        assert!(app
-            .launch_prep
-            .as_ref()
-            .and_then(|prep| prep.password.as_ref())
-            .is_none());
+        assert!(app.launch_prep.is_none());
+    }
+
+    #[test]
+    fn launch_game_requires_launch_prep() {
+        let _guard = test_guard();
+        let fake_steam = FakeSteam::install();
+        let mut app = test_app();
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(app.status_message.as_deref(), Some("No launch target selected"));
+        assert!(!fake_steam.was_launched());
+        assert!(app.launch_prep.is_none());
     }
 }
