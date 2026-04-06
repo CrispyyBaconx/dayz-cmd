@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Dayz CTL Install script
+# DayZ CMD install script
 # Copyright 2022 WoozyMasta <me@woozymasta.ru>
 # Licensed under the Apache License, Version 2.0
 
 set -euo pipefail
 
 : "${HOME:=${XDG_DATA_HOME:-$HOME}}"
-: "${DAYZ_CTL_VERSION:=master}"
-: "${DAYZ_CTL_DIR:=$HOME/.local/share/dayz-ctl}"
-: "${DAYZ_CTL_BIN_DIR:=$HOME/.local/share/dayz-ctl/bin}"
+: "${DAYZ_CMD_VERSION:=master}"
+: "${DAYZ_CMD_DIR:=$HOME/.local/share/dayz-cmd}"
+: "${DAYZ_CMD_BIN_DIR:=$HOME/.local/share/dayz-cmd/bin}"
 : "${USER_APPLICATIONS_DIR:=$HOME/.local/share/applications}"
 : "${USER_ICONS_DIR:=$HOME/.local/share/icons}"
 : "${USER_DOCK_DIR:=$HOME/.config/plank/dock1/launchers}"
@@ -17,7 +17,7 @@ set -euo pipefail
 jq_version='1.6'
 fzf_version='0.34.0'
 gum_version='0.7.0'
-raw_url=https://raw.githubusercontent.com/WoozyMasta/dayz-ctl
+raw_url=https://raw.githubusercontent.com/WoozyMasta/dayz-cmd
 packages_data_fresh=0
 
 declare -a installed_packages=()
@@ -81,7 +81,7 @@ if [ "${TEST_MODE,,}" = true ]; then
 fi
 
 # Create working dir
-mkdir -p "$DAYZ_CTL_DIR"
+mkdir -p "$DAYZ_CMD_DIR"
 
 # Set bin install path
 if [ "$EUID" -eq 0 ]; then
@@ -97,15 +97,15 @@ else
   if [ -d "$HOME/.local/bin" ]; then
     bin_path="$HOME/.local/bin"
   else
-    bin_path="$DAYZ_CTL_BIN_DIR"
-    mkdir -p "$DAYZ_CTL_BIN_DIR"
+    bin_path="$DAYZ_CMD_BIN_DIR"
+    mkdir -p "$DAYZ_CMD_BIN_DIR"
   fi
-  steamcmd_path="$DAYZ_CTL_DIR/steamcmd"
+  steamcmd_path="$DAYZ_CMD_DIR/steamcmd"
   package_su="sudo"
 fi
 
-# Set right path for alredy present dayz-ctl bin
-dayz_bin_path=$(command -v dayz-ctl 2>/dev/null) || dayz_bin_path="$bin_path"
+# Set right path for alredy present dayz-cmd bin
+dayz_bin_path=$(command -v dayz-cmd 2>/dev/null) || dayz_bin_path="$bin_path"
 
 # Set package manager command for install
 for manger in "${!package_manageers[@]}"; do
@@ -199,52 +199,52 @@ ghInstall fzf junegunn $fzf_version/fzf-$fzf_version-linux_amd64.tar.gz
 # Install gum
 ghInstall gum charmbracelet v$gum_version/gum_${gum_version}_linux_x86_64.tar.gz
 
-# Install dayz-ctl
-printf '%s\t(%s)\n' 'Install: Dayz CTL' 'https://github.com/WoozyMasta/dayz-ctl'
-curl -#fLo "${dayz_bin_path%/*}/dayz-ctl" \
-  "$raw_url/$DAYZ_CTL_VERSION/dayz-ctl" ||
-  fail "Can't download dayz-ctl from https://github.com/WoozyMasta/dayz-ctl"
-chmod +x "${dayz_bin_path%/*}/dayz-ctl"
-installed_packages+=(dayz-ctl)
+# Install dayz-cmd
+printf '%s\t(%s)\n' 'Install: Dayz CTL' 'https://github.com/WoozyMasta/dayz-cmd'
+curl -#fLo "${dayz_bin_path%/*}/dayz-cmd" \
+  "$raw_url/$DAYZ_CMD_VERSION/dayz-cmd" ||
+  fail "Can't download dayz-cmd from https://github.com/WoozyMasta/dayz-cmd"
+chmod +x "${dayz_bin_path%/*}/dayz-cmd"
+installed_packages+=(dayz-cmd)
 
-# Check dayz-ctl installed success
-if ! command -v dayz-ctl &>/dev/null; then
+# Check dayz-cmd installed success
+if ! command -v dayz-cmd &>/dev/null; then
   printf '%s\n\t%s\n' \
     "Create a symlink for the executable file, need superuser rights" \
-    "ln -sf \"$bin_path/dayz-ctl\" /usr/bin/dayz-ctl"
-  $package_su ln -sf "$bin_path/dayz-ctl" /usr/bin/dayz-ctl
+    "ln -sf \"$bin_path/dayz-cmd\" /usr/bin/dayz-cmd"
+  $package_su ln -sf "$bin_path/dayz-cmd" /usr/bin/dayz-cmd
 fi
 
 # Create desktop entry
 if [ -d "$USER_APPLICATIONS_DIR" ]; then
   [ -d "$USER_ICONS_DIR" ] &&
-    icon_path="$USER_ICONS_DIR/dayz-ctl.svg" && icon=dayz-ctl
+    icon_path="$USER_ICONS_DIR/dayz-cmd.svg" && icon=dayz-cmd
 
-  curl -sSfLo "${icon_path:-$bin_path/dayz-ctl.svg}" \
-    "$raw_url/$DAYZ_CTL_VERSION/extra/dayz-ctl.svg" ||
-    fail "Can't download dayz-ctl from https://github.com/WoozyMasta/dayz-ctl"
+  curl -sSfLo "${icon_path:-$bin_path/dayz-cmd.svg}" \
+    "$raw_url/$DAYZ_CMD_VERSION/extra/dayz-cmd.svg" ||
+    fail "Can't download dayz-cmd from https://github.com/WoozyMasta/dayz-cmd"
 
   printf '%s\n' \
     '[Desktop Entry]' \
-    'Name=DayZ Command Line Launcher' \
-    'Comment=dayz-ctl - DayZ Command Line Launcher' \
-    "Exec=$bin_path/dayz-ctl" \
-    "Icon=${icon:-$bin_path/dayz-ctl.svg}" \
+    'Name=DayZ CMD' \
+    'Comment=dayz-cmd - DayZ server browser and launcher for Linux' \
+    "Exec=$bin_path/dayz-cmd" \
+    "Icon=${icon:-$bin_path/dayz-cmd.svg}" \
     'Terminal=true' \
     'Type=Application' \
     'Categories=Game;' > \
-      "$USER_APPLICATIONS_DIR/dayz-ctl.desktop"
+      "$USER_APPLICATIONS_DIR/dayz-cmd.desktop"
 
   # Add plank dock launch
   if [ -d "$USER_DOCK_DIR" ]; then
     printf '%s\n' \
       '[PlankDockItemPreferences]' \
-      "Launcher=file://$USER_APPLICATIONS_DIR/dayz-ctl.desktop" > \
-        "$USER_DOCK_DIR/dayz-ctl.dockitem"
+      "Launcher=file://$USER_APPLICATIONS_DIR/dayz-cmd.desktop" > \
+        "$USER_DOCK_DIR/dayz-cmd.dockitem"
   fi
 fi
 
 echo "Installed: ${installed_packages[*]}"
 echo Done
 
-exec "$bin_path/dayz-ctl"
+exec "$bin_path/dayz-cmd"

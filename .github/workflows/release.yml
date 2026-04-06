@@ -12,16 +12,26 @@ jobs:
       packages: write
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p dist
+          cp install dist/dayz-cmd-installer-linux.sh
+          chmod +x dist/dayz-cmd-installer-linux.sh
+
       - name: Create Release
         id: create_release
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: "dist/dayz-cmd-installer-linux.sh"
           body: |
             Install latest version:
 
             ```bash
-            curl -sSfLA dayz-ctl bit.ly/3Vf2zz3 | bash
+            curl -sSfLA dayz-cmd bit.ly/3Vf2zz3 | bash
             ```
 
           draft: false
