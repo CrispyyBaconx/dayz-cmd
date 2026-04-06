@@ -6,9 +6,23 @@ use crate::config::Config;
 use crate::mods::ModsDb;
 use crate::profile::Profile;
 use crate::server::Server;
-use crate::steam::SteamHandle;
+use crate::steam::{ItemState, SteamHandle};
 use crate::ui::server_browser::{BrowseSource, ServerBrowserScreen};
 use crate::ui::*;
+
+struct PendingLaunch {
+    args: Vec<String>,
+    all_mod_ids: Vec<u64>,
+    pending_mod_ids: Vec<u64>,
+    history_entry: Option<(String, String, u16)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PendingDownloadStatus {
+    workshop_id: u64,
+    state: ItemState,
+    progress: Option<(u64, u64)>,
+}
 
 pub struct App {
     pub running: bool,
@@ -25,6 +39,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub selected_server: Option<usize>,
     pub direct_connect_target: Option<(String, u16)>,
+    pending_launch: Option<PendingLaunch>,
     screen_stack: Vec<Box<dyn Screen>>,
 }
 
@@ -48,6 +63,7 @@ impl App {
             status_message: None,
             selected_server: None,
             direct_connect_target: None,
+            pending_launch: None,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
         }
     }
@@ -254,27 +270,19 @@ impl App {
         let mod_ids: Vec<u64> = server
             .map(|s| s.mods.iter().map(|m| m.steam_workshop_id).collect())
             .unwrap_or_default();
-
-        if let (Some(dp), Some(wp)) = (&self.dayz_path, &self.workshop_path) {
-            if let Err(e) = crate::mods::ensure_mod_symlinks(dp, wp, &mod_ids) {
-                self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
-                return;
-            }
-        }
-
-        if let Some(server) = server {
-            self.profile.add_history(
-                &server.name,
-                &server.endpoint.ip,
-                server.endpoint.port,
-                self.config.history_size,
-            );
-            let _ = self.profile.save(&self.config.profile_path);
-        } else if let Some((ip, port)) = direct_target.as_ref() {
-            self.profile
-                .add_history(&format!("{ip}:{port}"), ip, *port, self.config.history_size);
-            let _ = self.profile.save(&self.config.profile_path);
-        }
+        let history_entry = server
+            .map(|server| {
+                (
+                    server.name.clone(),
+                    server.endpoint.ip.clone(),
+                    server.endpoint.port,
+                )
+            })
+            .or_else(|| {
+                direct_target
+                    .as_ref()
+                    .map(|(ip, port)| (format!("{ip}:{port}"), ip.clone(), *port))
+            });
 
         let args = if let Some((ip, port)) = direct_target.as_ref() {
             crate::launch::build_direct_connect_args(ip, *port, &player, &extra_args, None)
@@ -288,8 +296,57 @@ impl App {
             )
         };
 
+        if !mod_ids.is_empty() && (self.dayz_path.is_none() || self.workshop_path.is_none()) {
+            self.status_message = Some("Cannot manage server mods: Steam library path not detected".into());
+            return;
+        }
+
+        let missing_local = crate::mods::get_missing_mods(&self.mods_db, &mod_ids);
+        if !missing_local.is_empty() {
+            let Some(steam) = self.steam.as_ref() else {
+                self.status_message = Some(format!(
+                    "Missing mods not installed locally: {}",
+                    format_mod_ids(&missing_local)
+                ));
+                return;
+            };
+
+            match steam.ensure_mods_downloaded(&missing_local) {
+                Ok(pending_mod_ids) if !pending_mod_ids.is_empty() => {
+                    let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
+                    self.status_message = Some(download_status_message(&statuses));
+                    self.pending_launch = Some(PendingLaunch {
+                        args,
+                        all_mod_ids: mod_ids,
+                        pending_mod_ids,
+                        history_entry,
+                    });
+                    return;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to queue workshop downloads: {e}"));
+                    return;
+                }
+            }
+        }
+
+        if let Err(e) = self.ensure_symlinks(&mod_ids) {
+            self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
+            return;
+        }
+
+        self.finish_launch(args, history_entry);
+    }
+
+    fn finish_launch(&mut self, args: Vec<String>, history_entry: Option<(String, String, u16)>) {
         match crate::launch::launch_dayz(&args) {
             Ok(()) => {
+                if let Some((name, ip, port)) = history_entry {
+                    self.profile
+                        .add_history(&name, &ip, port, self.config.history_size);
+                    let _ = self.profile.save(&self.config.profile_path);
+                }
                 self.status_message = Some("DayZ launched!".into());
                 self.running = false;
             }
@@ -299,7 +356,84 @@ impl App {
         }
     }
 
-    pub fn tick(&mut self) {}
+    fn ensure_symlinks(&mut self, mod_ids: &[u64]) -> anyhow::Result<()> {
+        if let (Some(dp), Some(wp)) = (&self.dayz_path, &self.workshop_path) {
+            crate::mods::ensure_mod_symlinks(dp, wp, mod_ids)?;
+        }
+        Ok(())
+    }
+
+    pub fn tick(&mut self) {
+        let Some(pending) = self.pending_launch.take() else {
+            return;
+        };
+
+        let Some(steam) = self.steam.as_ref() else {
+            self.status_message = Some("Waiting for Steam to resume workshop downloads".into());
+            self.pending_launch = Some(pending);
+            return;
+        };
+
+        let statuses = collect_pending_download_statuses(steam, &pending.pending_mod_ids);
+        if downloads_ready(&statuses) {
+            if let Err(e) = self.ensure_symlinks(&pending.all_mod_ids) {
+                self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
+                return;
+            }
+            self.finish_launch(pending.args, pending.history_entry);
+        } else {
+            self.status_message = Some(download_status_message(&statuses));
+            self.pending_launch = Some(pending);
+        }
+    }
+}
+
+fn collect_pending_download_statuses(
+    steam: &SteamHandle,
+    workshop_ids: &[u64],
+) -> Vec<PendingDownloadStatus> {
+    workshop_ids
+        .iter()
+        .copied()
+        .map(|workshop_id| PendingDownloadStatus {
+            workshop_id,
+            state: steam.get_item_state(workshop_id),
+            progress: steam.get_download_progress(workshop_id),
+        })
+        .collect()
+}
+
+fn downloads_ready(statuses: &[PendingDownloadStatus]) -> bool {
+    statuses
+        .iter()
+        .all(|status| status.state == ItemState::Installed)
+}
+
+fn download_status_message(statuses: &[PendingDownloadStatus]) -> String {
+    let details = statuses
+        .iter()
+        .map(|status| match status.progress {
+            Some((downloaded, total)) if total > 0 => {
+                let percent = downloaded.saturating_mul(100) / total;
+                format!("{} ({}%)", status.workshop_id, percent)
+            }
+            _ => match status.state {
+                ItemState::Installed => format!("{} (ready)", status.workshop_id),
+                _ => format!("{} (queued)", status.workshop_id),
+            },
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!("Downloading {} mods: {details}", statuses.len())
+}
+
+fn format_mod_ids(mod_ids: &[u64]) -> String {
+    mod_ids
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn render_status_bar(f: &mut Frame, msg: &str) {
@@ -311,4 +445,59 @@ fn render_status_bar(f: &mut Frame, msg: &str) {
 
     let para = Paragraph::new(msg).style(theme::WARNING);
     f.render_widget(para, bar);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::steam::ItemState;
+
+    #[test]
+    fn download_status_message_includes_progress_and_waiting_items() {
+        let message = download_status_message(&[
+            PendingDownloadStatus {
+                workshop_id: 10,
+                state: ItemState::Downloading,
+                progress: Some((25, 100)),
+            },
+            PendingDownloadStatus {
+                workshop_id: 20,
+                state: ItemState::NeedsUpdate,
+                progress: None,
+            },
+        ]);
+
+        assert!(message.contains("Downloading 2 mods"));
+        assert!(message.contains("10 (25%)"));
+        assert!(message.contains("20 (queued)"));
+    }
+
+    #[test]
+    fn downloads_ready_only_when_all_items_installed() {
+        assert!(downloads_ready(&[
+            PendingDownloadStatus {
+                workshop_id: 10,
+                state: ItemState::Installed,
+                progress: None,
+            },
+            PendingDownloadStatus {
+                workshop_id: 20,
+                state: ItemState::Installed,
+                progress: None,
+            },
+        ]));
+
+        assert!(!downloads_ready(&[
+            PendingDownloadStatus {
+                workshop_id: 10,
+                state: ItemState::Installed,
+                progress: None,
+            },
+            PendingDownloadStatus {
+                workshop_id: 20,
+                state: ItemState::Downloading,
+                progress: Some((10, 100)),
+            },
+        ]));
+    }
 }
