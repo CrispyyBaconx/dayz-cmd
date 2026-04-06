@@ -8,7 +8,7 @@ pub fn fetch_server_list(api_url: &str, timeout_secs: u64) -> Result<ServerListR
     let url = format!("{api_url}/launcher/servers/dayz");
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
-        .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let resp: ServerListResponse = client
@@ -51,7 +51,7 @@ pub fn fetch_players_online(timeout_secs: u64) -> Result<u64> {
     let url = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=221100";
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
-        .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let resp: serde_json::Value = client.get(url).send()?.json()?;
@@ -70,7 +70,7 @@ mod tests {
 
     fn temp_path(prefix: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dayz-ctl-{prefix}-{}-{}",
+            "dayz-cmd-{prefix}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

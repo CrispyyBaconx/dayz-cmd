@@ -4,7 +4,7 @@ use std::time::Duration;
 pub fn get_battlemetrics_url(ip: &str, port: u16, name: &str, timeout_secs: u64) -> Result<Option<String>> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
-        .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let resp: serde_json::Value = client

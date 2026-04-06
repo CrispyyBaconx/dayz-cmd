@@ -338,16 +338,18 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_app() -> App {
-        let data_dir = std::env::temp_dir().join("dayz-ctl-tests-filter");
+        let data_dir = std::env::temp_dir().join("dayz-cmd-tests-filter");
         App::new(
             Config {
-                path: data_dir.join("dayz-ctl.conf"),
+                path: data_dir.join("dayz-cmd.conf"),
                 data_dir: data_dir.clone(),
                 server_db_path: data_dir.join("servers.json"),
                 news_db_path: data_dir.join("news.json"),
                 mods_db_path: data_dir.join("mods.json"),
                 profile_path: data_dir.join("profile.json"),
                 api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
                 request_timeout: 10,
                 server_request_timeout: 30,
                 server_db_ttl: 300,

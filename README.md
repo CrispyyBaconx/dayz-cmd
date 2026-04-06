@@ -1,6 +1,6 @@
-# DayZ Command Line Launcher
+# DayZ CMD
 
-**dayz-ctl** — this is an experimental launcher (server explorer and launcher)
+**dayz-cmd** — this is an experimental launcher (server explorer and launcher)
 [DayZ][] on [Steam][221100] [Proton][] for Linux.
 
 <!-- rule: current lang, other langs sorted by alpha -->
@@ -35,7 +35,7 @@ Special thanks to [dayz-linux-cli-launcher][] for the idea and
 
 ## Preview
 
-> ![Launcher Demo](extra/dayz-ctl-demo.svg)
+> ![Launcher Demo](extra/dayz-cmd-demo.svg)
 > **Launcher Demo**
 
 <!-- markdownlint-disable -->
@@ -120,7 +120,7 @@ for you (at least try to do it)
 Execute this:
 
 ```bash
-curl -sSfLA dayz-ctl bit.ly/3Vf2zz3 | bash
+curl -sSfLA dayz-cmd bit.ly/3Vf2zz3 | bash
 ```
 
 ### Manual installation
@@ -147,22 +147,22 @@ dependencies installed:
 Then you can clone the repository:
 
 ```bash
-git clone git@github.com:WoozyMasta/dayz-ctl.git
+git clone git@github.com:WoozyMasta/dayz-cmd.git
 # or
-git clone https://github.com/WoozyMasta/dayz-ctl.git
+git clone https://github.com/WoozyMasta/dayz-cmd.git
 # and run
-cd dayz-ctl
-./dayz-ctl
+cd dayz-cmd
+./dayz-cmd
 ```
 
 Or download the script file itself:
 
 ```bash
-curl -sSfL -o ~/.local/bin/dayz-ctl \
-  https://raw.githubusercontent.com/WoozyMasta/dayz-ctl/master/dayz-ctl
-chmod +x ~/.local/bin/dayz-ctl
+curl -sSfL -o ~/.local/bin/dayz-cmd \
+  https://raw.githubusercontent.com/WoozyMasta/dayz-cmd/master/dayz-cmd
+chmod +x ~/.local/bin/dayz-cmd
 # and run
-dayz-ctl
+dayz-cmd
 ```
 
 ### Emoji
@@ -186,7 +186,7 @@ a patch to replace them with strings:
 sed -e 's/▫️/•/g' -e 's/🟩/✕/g' -e 's/⬛/ /g' -e 's/🕒/time/g' -e 's/❔/?/g' \
   -e 's/🟢/ok/g' -e 's/🔴/no/g' -e 's/🌙/night/g' -e 's/☀️/day/g' \
   -e 's/🔒/yes/g' -e 's/🔓/no/g' -e 's/✅/ok/g' -e 's/❌/no/g' \
-  -i "$(which dayz-ctl)"
+  -i "$(which dayz-cmd)"
 ```
 
 ## Tested distros
@@ -251,35 +251,35 @@ PVE | RP
 
 You can fine-tune how the launcher works with the help of environment
 variables that you can pass to the environment as usual or write to the
-configuration file `$HOME/.local/share/dayz-ctl/dayz-ctl.conf` (by default)
+configuration file `$HOME/.local/share/dayz-cmd/dayz-cmd.conf` (by default)
 
 List of available variables:
 
-* **`DAYZ_CTL_VERSION`** — application version
-* **`DAYZ_CTL_NAME`**=`dayz-ctl` — application name
+* **`DAYZ_CMD_VERSION`** — application version
+* **`DAYZ_CMD_NAME`**=`dayz-cmd` — application name
 * **`DAYZ_GAME_ID`**=`221100` — Steam game ID
 * **`APPLICATIONS_DIR`**=`$HOME/.local/share/applications` — directory for
   storing application shortcuts
-* **`DAYZ_CTL_DIR`**=`$HOME/.local/share/dayz-ctl` — launcher working
+* **`DAYZ_CMD_DIR`**=`$HOME/.local/share/dayz-cmd` — launcher working
   directory
-* **`DAYZ_CTL_BIN_DIR`**=`$HOME/.local/share/dayz-ctl/bin` — directory for
+* **`DAYZ_CMD_BIN_DIR`**=`$HOME/.local/share/dayz-cmd/bin` — directory for
   storing additional executable files
 * **`DAYZ_REQUEST_TIMEOUT`**=`10` — standard timeout for HTTP requests in
   seconds
-* **`DAYZ_CONFIG_FILE`**=`$DAYZ_CTL_DIR/$DAYZ_CTL_NAME.conf` — dayz-ctl
+* **`DAYZ_CONFIG_FILE`**=`$DAYZ_CMD_DIR/$DAYZ_CMD_NAME.conf` — dayz-cmd
   configuration file
-* **`DAYZ_SERVER_DB`**=`$DAYZ_CTL_DIR/servers.json` — server database file
+* **`DAYZ_SERVER_DB`**=`$DAYZ_CMD_DIR/servers.json` — server database file
 * **`DAYZ_SERVER_DB_TTL`**=`300` — TTL for server database in seconds
 * **`DAYZ_SERVER_REQUEST_TIMEOUT`**=`30` — timeout for getting a list of
   servers in seconds
-* **`DAYZ_NEWS_DB`**=`$DAYZ_CTL_DIR/news.json` — news base file
+* **`DAYZ_NEWS_DB`**=`$DAYZ_CMD_DIR/news.json` — news base file
 * **`DAYZ_NEWS_DB_TTL`**=`3600` — TTL for the news database in seconds
-* **`DAYZ_MODS_DB`**=`$DAYZ_CTL_DIR/mods.json` — modification database file
-* **`DAYZ_PROFILE`**=`$DAYZ_CTL_DIR/profile.json` — user profile file
+* **`DAYZ_MODS_DB`**=`$DAYZ_CMD_DIR/mods.json` — modification database file
+* **`DAYZ_PROFILE`**=`$DAYZ_CMD_DIR/profile.json` — user profile file
 * **`DAYZ_HISTORY_SIZE`**=`10` - server explorer history size
-* **`DAYZ_FZF_HISTORY`**=`$DAYZ_CTL_DIR/.$DAYZ_CTL_NAME-history` — history
+* **`DAYZ_FZF_HISTORY`**=`$DAYZ_CMD_DIR/.$DAYZ_CMD_NAME-history` — history
   file for fuzzy search
-* **`DAYZ_USERAGENT`**=`"$DAYZ_CTL_NAME $DAYZ_CTL_VERSION"` — User-Agent
+* **`DAYZ_USERAGENT`**=`"$DAYZ_CMD_NAME $DAYZ_CMD_VERSION"` — User-Agent
   used for HTTP requests
 * **`DAYZ_API`**=`https://dayzsalauncher.com/api/v1` — [API][dayzsalauncher]
   address for getting a list of servers
@@ -343,7 +343,7 @@ Frame rate limit `DXVK_FRAME_RATE=0`
 [eng 🇬🇧]: README.md
 [ua 🇺🇦]: README.ua.md
 [rus 🇷🇺]: README.ru.md
-[logo]: extra/dayz-ctl-logo.svg
+[logo]: extra/dayz-cmd-logo.svg
 
 [DayZ]: https://dayz.com
 [Bohemia Interactive]: https://www.bohemia.net/games/dayz

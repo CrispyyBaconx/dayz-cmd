@@ -16,7 +16,7 @@
    version="1.1"
    id="svg8"
    inkscape:version="0.92.5 (2060ec1f9f, 2020-04-08)"
-   sodipodi:docname="dayz-ctl-logo.svg">
+   sodipodi:docname="dayz-cmd-logo.svg">
   <defs
      id="defs2">
     <linearGradient
@@ -468,7 +468,7 @@
      id="layer1"
      transform="translate(609.35534,308.84648)">
     <g
-       aria-label="DayZ Command Line Launcher"
+       aria-label="DayZ CMD"
        transform="matrix(1.4588288,0,0,1.4975913,-468.71291,-412.87338)"
        style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:40.00018692px;line-height:1.25;font-family:Uroob;-inkscape-font-specification:'Uroob, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-feature-settings:normal;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;fill:#3e563e;fill-opacity:0.90196078;stroke:none"
        id="flowRoot815">
@@ -820,7 +820,7 @@
            x="-348.57144"
            y="942.51971" /></flowRegion><flowPara
          id="flowPara973" /></flowRoot>    <g
-       aria-label="&gt;./dayz-ctl"
+       aria-label="&gt;./dayz-cmd"
        transform="matrix(1.0521455,0,0,0.95043889,202.09702,-18.520834)"
        style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:72.94033051px;line-height:1.25;font-family:'JetBrains Mono';-inkscape-font-specification:'JetBrains Mono, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-feature-settings:normal;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;fill:#232d23;fill-opacity:0.90019579;stroke:#385a41;stroke-width:1.82353556;stroke-linecap:round;stroke-linejoin:bevel;stroke-opacity:0.6320939;paint-order:stroke fill markers"
        id="text987">

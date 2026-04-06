@@ -1,5 +1,5 @@
 [package]
-name = "dayz-ctl"
+name = "dayz-cmd"
 version = "0.3.0"
 edition = "2021"
 description = "DayZ server browser and launcher for Linux"

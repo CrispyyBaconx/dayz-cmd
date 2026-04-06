@@ -7,30 +7,30 @@ set -euo pipefail
 
 ## Variables
 ## ---------
-DAYZ_CTL_CMD="$(
+DAYZ_CMD_CMD="$(
   cd "$(dirname "${BASH_SOURCE[0]}")"; pwd)/$(basename "${BASH_SOURCE[0]}"
 )"
-DAYZ_CTL_REPO=WoozyMasta/dayz-ctl
-: "${DAYZ_CTL_VERSION:=0.1.2}"
-: "${DAYZ_CTL_NAME:=${0##*/}}"
+DAYZ_CMD_REPO=WoozyMasta/dayz-cmd
+: "${DAYZ_CMD_VERSION:=0.1.2}"
+: "${DAYZ_CMD_NAME:=${0##*/}}"
 : "${DAYZ_GAME_ID:=221100}"
 
 : "${HOME:=${XDG_DATA_HOME:-$HOME}}"
 : "${APPLICATIONS_DIR:=$HOME/.local/share/applications}"
-: "${DAYZ_CTL_DIR:=$HOME/.local/share/dayz-ctl}"
-: "${DAYZ_CTL_BIN_DIR:=$HOME/.local/share/dayz-ctl/bin}"
+: "${DAYZ_CMD_DIR:=$HOME/.local/share/dayz-cmd}"
+: "${DAYZ_CMD_BIN_DIR:=$HOME/.local/share/dayz-cmd/bin}"
 : "${DAYZ_REQUEST_TIMEOUT:=10}" # Curl timeout in seconds
-: "${DAYZ_CONFIG_FILE:=$DAYZ_CTL_DIR/$DAYZ_CTL_NAME.conf}"
-: "${DAYZ_SERVER_DB:=$DAYZ_CTL_DIR/servers.json}"
+: "${DAYZ_CONFIG_FILE:=$DAYZ_CMD_DIR/$DAYZ_CMD_NAME.conf}"
+: "${DAYZ_SERVER_DB:=$DAYZ_CMD_DIR/servers.json}"
 : "${DAYZ_SERVER_DB_TTL:=300}" # TTL in seconds
 : "${DAYZ_SERVER_REQUEST_TIMEOUT:=30}" # Curl timeout in seconds
-: "${DAYZ_NEWS_DB:=$DAYZ_CTL_DIR/news.json}"
+: "${DAYZ_NEWS_DB:=$DAYZ_CMD_DIR/news.json}"
 : "${DAYZ_NEWS_DB_TTL:=3600}" # TTL in seconds
-: "${DAYZ_MODS_DB:=$DAYZ_CTL_DIR/mods.json}"
-: "${DAYZ_PROFILE:=$DAYZ_CTL_DIR/profile.json}"
+: "${DAYZ_MODS_DB:=$DAYZ_CMD_DIR/mods.json}"
+: "${DAYZ_PROFILE:=$DAYZ_CMD_DIR/profile.json}"
 : "${DAYZ_HISTORY_SIZE:=10}"
-: "${DAYZ_FZF_HISTORY:=$DAYZ_CTL_DIR/.$DAYZ_CTL_NAME-history}"
-: "${DAYZ_USERAGENT:="$DAYZ_CTL_NAME $DAYZ_CTL_VERSION"}"
+: "${DAYZ_FZF_HISTORY:=$DAYZ_CMD_DIR/.$DAYZ_CMD_NAME-history}"
+: "${DAYZ_USERAGENT:="$DAYZ_CMD_NAME $DAYZ_CMD_VERSION"}"
 : "${DAYZ_API:=https://dayzsalauncher.com/api/v1}"
 # https://api.dayzmagiclauncher.com/servers
 
@@ -39,7 +39,7 @@ DAYZ_CTL_REPO=WoozyMasta/dayz-ctl
 : "${DAYZ_FILTER_PLAYERS_LIMIT:=50}"
 : "${DAYZ_FILTER_PLAYERS_SLOTS:=60}"
 
-[ -d "$DAYZ_CTL_BIN_DIR" ] && export PATH="$DAYZ_CTL_BIN_DIR:$PATH"
+[ -d "$DAYZ_CMD_BIN_DIR" ] && export PATH="$DAYZ_CMD_BIN_DIR:$PATH"
 
 # Dependent tools
 declare -A dependencies=(
@@ -135,7 +135,7 @@ baseProfile() {
   "scriptDebug":{"enabled":false,"value":false,"description":
     "Debug scripts"}
 },
-"version":"$DAYZ_CTL_VERSION"}
+"version":"$DAYZ_CMD_VERSION"}
 base_profile
 }
 
@@ -636,7 +636,7 @@ getNotInstalledMods() {
         '.mods[] | select(.steamWorkshopId == $id) | .name' <<< "$data"
       )"
       workshopDownload "$id" "$name"
-      echo "$id" > "$dayz_workshop_path/$id/.dayz-ctl"
+      echo "$id" > "$dayz_workshop_path/$id/.dayz-cmd"
     done
   fi
 
@@ -737,11 +737,11 @@ printInstalledModsInfo() {
     echo "Not found any installed mod" && return 0
 
   printf '%s\n' '# List of Currently Installed DayZ Mods' \
-    'Name | Size | ID | dayz-ctl' '--- | --- | --- | ---'
+    'Name | Size | ID | dayz-cmd' '--- | --- | --- | ---'
   while IFS=$'\t' read -r name size id _; do
     printf '%s | %s | %s | ' "$name" "$size Mb" \
       "$id"
-    if [ -f "$dayz_workshop_path/$id/.dayz-ctl" ]; then
+    if [ -f "$dayz_workshop_path/$id/.dayz-cmd" ]; then
       echo "🟢"
     else
       echo "🔴"
@@ -1151,7 +1151,7 @@ Name=DayZ - $(
     --value="$server_name" --placeholder="$server_name"
 )
 Comment=Play DayZ on Steam ($server_name)
-Exec=$DAYZ_CTL_CMD connect $server_ip $server_game_port
+Exec=$DAYZ_CMD_CMD connect $server_ip $server_game_port
 Icon=steam_icon_$DAYZ_GAME_ID
 Terminal=true
 Type=Application
@@ -1264,7 +1264,7 @@ removeAllLauncherInstalledMods() {
   local i=0 mods=() before_size after_size
   before_size="$(du -hd0 "$dayz_workshop_path")"
   for f in "$dayz_workshop_path"/*; do
-    [ ! -f "$f/.dayz-ctl" ] && continue
+    [ ! -f "$f/.dayz-cmd" ] && continue
     mods+=("${f##*/} \`$(du -hd0 "$f")\`")
     rm -rf -- "$f"
     ((i+=1))
@@ -1368,9 +1368,9 @@ configMenu() {
 # Print about info
 about() {
   gum format \
-    "## DayZ CTL $DAYZ_CTL_VERSION" \
+    "## DayZ CTL $DAYZ_CMD_VERSION" \
     "* Game ID:      \`$DAYZ_GAME_ID\`" \
-    "* WorkDir:      \`$DAYZ_CTL_DIR\`" \
+    "* WorkDir:      \`$DAYZ_CMD_DIR\`" \
     "* SteamDir:     \`$steam_root\`" \
     "* Config:       \`$DAYZ_CONFIG_FILE\`" \
     "* History size: \`$DAYZ_HISTORY_SIZE\`" \
@@ -1381,7 +1381,7 @@ about() {
     "* DayZ API:     \`$DAYZ_API\`" \
     "* SteamCMD:     \`$DAYZ_STEAMCMD_ENABLED\`" '' \
     "Thanks to https://dayzsalauncher.com for the API" \
-    "[$DAYZ_CTL_NAME project](https://github.com/$DAYZ_CTL_REPO)"\
+    "[$DAYZ_CMD_NAME project](https://github.com/$DAYZ_CMD_REPO)"\
     "WoozyMasta <me@woozymasta.ru>"
 }
 
@@ -1419,7 +1419,7 @@ closeScreen() {
 # Execute self
 execSelf() {
   closeScreen
-  exec $DAYZ_CTL_CMD
+  exec $DAYZ_CMD_CMD
 }
 
 export -f fzfPreview
@@ -1431,7 +1431,7 @@ export DAYZ_SERVER_DB
 # TODO run from Steam
 # if [ "${2:-}" = SteamLaunch ] && [ "${3:-}" = "AppId=$DAYZ_GAME_ID" ]; then
 #   # xterm or https://github.com/i3/i3/blob/next/i3-sensible-terminal
-#   exec xterm -e "/home/woozymasta/git/dayz-cli-launcher/dayz-ctl" \
+#   exec xterm -e "/home/woozymasta/git/dayz-cli-launcher/dayz-cmd" \
 #     -T 'DayZ CTL Launcher'
 # fi
 
@@ -1450,7 +1450,7 @@ for cmd in "${!dependencies[@]}"; do
 done
 
 # First launch
-[ ! -d "$DAYZ_CTL_DIR" ] && mkdir -p "$DAYZ_CTL_DIR"
+[ ! -d "$DAYZ_CMD_DIR" ] && mkdir -p "$DAYZ_CMD_DIR"
 
 # Check profile file exist not empty
 if [ ! -s "$DAYZ_PROFILE" ]; then
@@ -1465,7 +1465,7 @@ if [ ! -s "$DAYZ_PROFILE" ]; then
       '* Mods will be installed and updated automatically with this launcher' \
       '* Steam will not know anything about your installed mods' '' \
       '_See the project documentation for more details_' \
-      "https://github.com/$DAYZ_CTL_REPO"
+      "https://github.com/$DAYZ_CMD_REPO"
   )"
   then
     setConfigVar DAYZ_STEAMCMD_ENABLED true

@@ -189,7 +189,7 @@ mod tests {
 
     fn temp_path(prefix: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dayz-ctl-{prefix}-{}-{}",
+            "dayz-cmd-{prefix}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -202,13 +202,15 @@ mod tests {
         let data_dir = temp_path("popup-data");
         let mut app = App::new(
             Config {
-                path: data_dir.join("dayz-ctl.conf"),
+                path: data_dir.join("dayz-cmd.conf"),
                 data_dir: data_dir.clone(),
                 server_db_path: data_dir.join("servers.json"),
                 news_db_path: data_dir.join("news.json"),
                 mods_db_path: data_dir.join("mods.json"),
                 profile_path: data_dir.join("profile.json"),
                 api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
                 request_timeout: 10,
                 server_request_timeout: 30,
                 server_db_ttl: 300,

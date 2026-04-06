@@ -150,7 +150,7 @@ mod tests {
 
     fn temp_path(prefix: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dayz-ctl-{prefix}-{}-{}",
+            "dayz-cmd-{prefix}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -215,7 +215,7 @@ mod tests {
             "Test Server",
             "1.2.3.4",
             2302,
-            "/usr/bin/dayz-ctl",
+            "/usr/bin/dayz-cmd",
         )
         .expect("create desktop entry");
 

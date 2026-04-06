@@ -1,6 +1,6 @@
 ---
 name: Rust TUI DayZ Launcher
-overview: "Rewrite dayz-ctl from a Bash script into a Rust TUI application using ratatui for the terminal UI and steamworks-rs for Steam/Workshop integration, preserving all major features: server browsing with fuzzy search, mod management, favorites/history, direct connect, news, config, and game launching."
+overview: "Rewrite dayz-cmd from a Bash script into a Rust TUI application using ratatui for the terminal UI and steamworks-rs for Steam/Workshop integration, preserving all major features: server browsing with fuzzy search, mod management, favorites/history, direct connect, news, config, and game launching."
 todos:
   - id: scaffold
     content: Create Cargo project, define core types (Server, Mod, Profile, Config, LaunchOption), set up ratatui event loop skeleton with screen enum and crossterm backend
@@ -36,7 +36,7 @@ todos:
     content: Implement favorites add/remove, history tracking with configurable size, desktop entry (.desktop file) generation
     status: completed
   - id: cli-mode
-    content: "Add clap CLI: dayz-ctl connect <ip> <port> for direct connect from desktop entries, plus --version, --help"
+    content: "Add clap CLI: dayz-cmd connect <ip> <port> for direct connect from desktop entries, plus --version, --help"
     status: completed
   - id: polish
     content: Error handling, tracing/logging, graceful degradation when Steam not running, offline mode support, self-update check
@@ -44,11 +44,11 @@ todos:
 isProject: false
 ---
 
-# Rewrite dayz-ctl in Rust with ratatui + steamworks-rs
+# Rewrite dayz-cmd in Rust with ratatui + steamworks-rs
 
 ## Current State
 
-The project is a single ~1700-line Bash script ([dayz-ctl](dayz-ctl)) that acts as a DayZ server browser and launcher for Linux. It uses:
+The project is a single ~1700-line Bash script ([dayz-cmd](dayz-cmd)) that acts as a DayZ server browser and launcher for Linux. It uses:
 - **gum** (Charm) for menus, prompts, spinners
 - **fzf** for fuzzy server list with live preview
 - **SteamCMD** for workshop mod downloads
@@ -118,14 +118,14 @@ graph TD
 ## Project Structure
 
 ```
-dayz-ctl-rs/
+dayz-cmd-rs/
   Cargo.toml
   steam_appid.txt              # Contains "221100"
   src/
     main.rs                    # Entry point, arg parsing, terminal setup
     app.rs                     # App state machine, event loop
     event.rs                   # Input/tick event system
-    config.rs                  # Config file (dayz-ctl.conf equivalent)
+    config.rs                  # Config file (dayz-cmd.conf equivalent)
     profile.rs                 # Profile JSON (favorites, history, options)
     steam/
       mod.rs                   # Steam client init + callback thread
@@ -162,7 +162,7 @@ dayz-ctl-rs/
 
 ```toml
 [package]
-name = "dayz-ctl"
+name = "dayz-cmd"
 version = "0.3.0"
 edition = "2024"
 
@@ -221,4 +221,4 @@ Build all UI screens: main menu, server browser with fuzzy search and split-pane
 Implement mod symlink management (`@workshopId` symlinks in DayZ dir), build launch argument construction, process spawning via `steam -applaunch`, and process detection.
 
 ### Phase 6 -- Polish
-Favorites/history management, desktop entry generation, offline mode (DayZCommunityOfflineMode), error handling, logging, and CLI mode (`dayz-ctl connect IP PORT`).
+Favorites/history management, desktop entry generation, offline mode (DayZCommunityOfflineMode), error handling, logging, and CLI mode (`dayz-cmd connect IP PORT`).

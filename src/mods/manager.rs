@@ -171,7 +171,7 @@ pub fn remove_managed_mods(workshop_path: &Path, dayz_path: &Path) -> Result<(u3
     if let Ok(entries) = fs::read_dir(workshop_path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let marker = path.join(".dayz-ctl");
+            let marker = path.join(".dayz-cmd");
             if marker.exists() {
                 if let Some(name) = entry.file_name().to_str() {
                     removed.push(name.to_string());
@@ -230,7 +230,7 @@ mod tests {
 
     fn temp_path(prefix: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dayz-ctl-{prefix}-{}-{}",
+            "dayz-cmd-{prefix}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

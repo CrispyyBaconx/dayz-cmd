@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.2.0](https://github.com/WoozyMasta/dayz-ctl/releases/tag/0.2.0) - 2024-03-27
+## [0.2.0](https://github.com/WoozyMasta/dayz-cmd/releases/tag/0.2.0) - 2024-03-27
 
 ### Added
 
@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 * Minor ShellCheck issues
 * Filter `Filter by Map Name` renamed to `Filter by Top of Maps`
 
-## [0.1.0](https://github.com/WoozyMasta/dayz-ctl/releases/tag/0.1.0) - 2022-10-11
+## [0.1.0](https://github.com/WoozyMasta/dayz-cmd/releases/tag/0.1.0) - 2022-10-11
 
 ### Added
 

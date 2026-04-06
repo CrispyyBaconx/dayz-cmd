@@ -179,7 +179,7 @@ impl ServerDetailScreen {
             DetailAction::CreateDesktopEntry | DetailAction::UpdateDesktopEntry => {
                 let exe = std::env::current_exe()
                     .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| "dayz-ctl".into());
+                    .unwrap_or_else(|_| "dayz-cmd".into());
                 let _ = crate::launch::create_desktop_entry(
                     &app.config.applications_dir,
                     &server.name,
@@ -290,16 +290,18 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_app() -> App {
-        let data_dir = std::env::temp_dir().join("dayz-ctl-tests-server-detail");
+        let data_dir = std::env::temp_dir().join("dayz-cmd-tests-server-detail");
         let mut app = App::new(
             Config {
-                path: data_dir.join("dayz-ctl.conf"),
+                path: data_dir.join("dayz-cmd.conf"),
                 data_dir: data_dir.clone(),
                 server_db_path: data_dir.join("servers.json"),
                 news_db_path: data_dir.join("news.json"),
                 mods_db_path: data_dir.join("mods.json"),
                 profile_path: data_dir.join("profile.json"),
                 api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
                 request_timeout: 10,
                 server_request_timeout: 30,
                 server_db_ttl: 300,

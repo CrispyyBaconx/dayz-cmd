@@ -38,7 +38,7 @@ pub fn fetch_news(timeout_secs: u64) -> Result<Vec<NewsArticle>> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .danger_accept_invalid_certs(true)
-        .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let resp: NewsResponse = client
@@ -87,7 +87,7 @@ mod tests {
 
     fn temp_path(prefix: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dayz-ctl-{prefix}-{}-{}",
+            "dayz-cmd-{prefix}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

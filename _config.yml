@@ -1,5 +1,5 @@
 theme: jekyll-theme-cayman
 show_downloads: true
-logo: /extra/dayz-ctl-logo.svg
-title: dayz-ctl
-description: DayZ Command Line Launcher
+logo: /extra/dayz-cmd-logo.svg
+title: dayz-cmd
+description: DayZ CMD
