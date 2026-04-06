@@ -139,4 +139,29 @@ mod tests {
             Some("secret")
         );
     }
+
+    #[test]
+    fn escape_clears_shared_launch_password() {
+        let mut screen = PasswordPromptScreen::new();
+        let mut app = test_app();
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::DirectConnect {
+                ip: "5.6.7.8".into(),
+                port: 2402,
+            },
+            mod_ids: Vec::new(),
+            password: Some("secret".into()),
+            offline_spawn_enabled: None,
+        });
+
+        let action = screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
+        assert!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_ref())
+                .is_none()
+        );
+    }
 }

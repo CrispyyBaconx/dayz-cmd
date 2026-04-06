@@ -364,6 +364,9 @@ impl App {
             ScreenId::Config => Box::new(config_screen::ConfigScreen::new()),
             ScreenId::News => Box::new(news::NewsScreen::new()),
             ScreenId::DirectConnect => Box::new(direct_connect::DirectConnectScreen::new()),
+            ScreenId::DirectConnectSetup => {
+                Box::new(direct_connect_setup::DirectConnectSetupScreen::new())
+            }
             ScreenId::PasswordPrompt => Box::new(password_prompt::PasswordPromptScreen::new()),
             ScreenId::FilterSelect => Box::new(filter::FilterSelectScreen::new(self)),
             ScreenId::UpdatePrompt => Box::new(update_prompt::UpdatePromptScreen::new()),
@@ -425,14 +428,17 @@ impl App {
         let extra_args = self.profile.get_launch_args();
 
         let offline_update = match &target {
-            LaunchTarget::Offline { mission_id } => Some((mission_id.clone(), offline_spawn_enabled)),
+            LaunchTarget::Offline { mission_id } => {
+                Some((mission_id.clone(), offline_spawn_enabled))
+            }
             _ => None,
         };
 
         let (args, history_entry) = match target {
             LaunchTarget::KnownServer(idx) => {
                 let Some(server) = self.servers.get(idx) else {
-                    self.status_message = Some(format!("Launch target server {idx} is unavailable"));
+                    self.status_message =
+                        Some(format!("Launch target server {idx} is unavailable"));
                     return;
                 };
                 let history_entry = Some((
@@ -451,7 +457,7 @@ impl App {
             }
             LaunchTarget::DirectConnect { ip, port } => {
                 let history_entry = Some((format!("{ip}:{port}"), ip.clone(), port));
-                let args = crate::launch::build_direct_connect_args_with_mods(
+                let args = crate::launch::build_direct_connect_args_with_selected_mod_ids(
                     &ip,
                     port,
                     &player,
@@ -533,8 +539,7 @@ impl App {
 
         if let Some((mission_id, spawn_enabled)) = offline_update {
             let Some(dayz_path) = self.dayz_path.as_ref() else {
-                self.status_message =
-                    Some("Cannot launch offline: DayZ path not detected".into());
+                self.status_message = Some("Cannot launch offline: DayZ path not detected".into());
                 self.asked_update_mods = false;
                 self.update_mods_before_launch = false;
                 return;
@@ -543,8 +548,7 @@ impl App {
             if let Err(e) =
                 crate::launch::apply_offline_spawn_setting(dayz_path, &mission_id, spawn_enabled)
             {
-                self.status_message =
-                    Some(format!("Failed to update offline spawn setting: {e}"));
+                self.status_message = Some(format!("Failed to update offline spawn setting: {e}"));
                 self.asked_update_mods = false;
                 self.update_mods_before_launch = false;
                 return;
@@ -1240,7 +1244,8 @@ mod tests {
         let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         let client_file = mission_dir.join("CommunityOfflineClient.c");
-        fs::write(&client_file, "bool HIVE_ENABLED = false;\n").expect("write offline mission file");
+        fs::write(&client_file, "bool HIVE_ENABLED = false;\n")
+            .expect("write offline mission file");
         fs::create_dir_all(&workshop_path).expect("create workshop path");
 
         let mut app = test_app();
@@ -1262,7 +1267,10 @@ mod tests {
         app.tick();
 
         let args = read_launch_args(&capture);
-        assert!(args.iter().any(|arg| arg == &format!("-mission=./Missions/{mission_id}")));
+        assert!(
+            args.iter()
+                .any(|arg| arg == &format!("-mission=./Missions/{mission_id}"))
+        );
         assert!(args.iter().any(|arg| arg == "-mod=@1564026768"));
         assert_eq!(
             fs::read_to_string(&client_file).expect("read mission file"),
@@ -1287,7 +1295,8 @@ mod tests {
         let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         let client_file = mission_dir.join("CommunityOfflineClient.c");
-        fs::write(&client_file, "bool HIVE_ENABLED = false;\n").expect("write offline mission file");
+        fs::write(&client_file, "bool HIVE_ENABLED = false;\n")
+            .expect("write offline mission file");
 
         let mut app = test_app();
         app.dayz_path = Some(dayz_path.clone());

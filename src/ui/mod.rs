@@ -1,5 +1,6 @@
 pub mod config_screen;
 pub mod direct_connect;
+pub mod direct_connect_setup;
 pub mod filter;
 pub mod main_menu;
 pub mod news;
@@ -38,6 +39,7 @@ pub enum ScreenId {
     Config,
     News,
     DirectConnect,
+    DirectConnectSetup,
     PasswordPrompt,
     FilterSelect,
     UpdatePrompt,

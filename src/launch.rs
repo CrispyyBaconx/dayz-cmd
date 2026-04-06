@@ -1,5 +1,5 @@
 use crate::server::Server;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -78,6 +78,24 @@ pub fn build_direct_connect_args_with_mods(
     args.extend(build_connect_args(ip, port, password));
     args.extend(extra_args.iter().cloned());
     args
+}
+
+pub fn build_direct_connect_args_with_selected_mod_ids(
+    ip: &str,
+    port: u16,
+    player_name: &str,
+    selected_mod_ids: &[u64],
+    extra_args: &[String],
+    password: Option<&str>,
+) -> Vec<String> {
+    build_direct_connect_args_with_mods(
+        ip,
+        port,
+        player_name,
+        selected_mod_ids,
+        extra_args,
+        password,
+    )
 }
 
 pub fn apply_offline_spawn_setting(
@@ -327,6 +345,22 @@ mod tests {
     }
 
     #[test]
+    fn builds_launch_args_for_direct_connect_with_selected_mod_ids() {
+        let args = build_direct_connect_args_with_selected_mod_ids(
+            "5.6.7.8",
+            2402,
+            "Survivor",
+            &[111, 222],
+            &["-nosplash".into()],
+            None,
+        );
+
+        assert!(args.contains(&"-connect=5.6.7.8".to_string()));
+        assert!(args.contains(&"-port=2402".to_string()));
+        assert!(args.contains(&"-mod=@111;@222".to_string()));
+    }
+
+    #[test]
     fn builds_offline_launch_args_from_explicit_prep_values() {
         let args = build_offline_launch_args(
             "DayZCommunityOfflineMode.ChernarusPlus",
@@ -338,7 +372,11 @@ mod tests {
         assert!(args.contains(&"-nolauncher".to_string()));
         assert!(args.contains(&"-name=Survivor".to_string()));
         assert!(args.contains(&"-filePatching".to_string()));
-        assert!(args.contains(&"-mission=./Missions/DayZCommunityOfflineMode.ChernarusPlus".to_string()));
+        assert!(
+            args.contains(
+                &"-mission=./Missions/DayZCommunityOfflineMode.ChernarusPlus".to_string()
+            )
+        );
         assert!(args.contains(&"-mod=@123;@456".to_string()));
         assert!(args.contains(&"-doLogs".to_string()));
         assert!(args.contains(&"-scriptDebug=true".to_string()));
@@ -375,12 +413,8 @@ mod tests {
         fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
         fs::write(&client_file, "bool HIVE_ENABLED = true;\n").expect("write client file");
 
-        apply_offline_spawn_setting(
-            &root,
-            "DayZCommunityOfflineMode.ChernarusPlus",
-            Some(true),
-        )
-        .expect("already-correct state should succeed");
+        apply_offline_spawn_setting(&root, "DayZCommunityOfflineMode.ChernarusPlus", Some(true))
+            .expect("already-correct state should succeed");
 
         assert_eq!(
             fs::read_to_string(&client_file).expect("read client file"),
