@@ -135,10 +135,16 @@ impl ConfirmScreen {
     fn confirm(&self, app: &mut App) -> Action {
         match &self.action {
             ConfirmAction::Quit => Action::Quit,
-            ConfirmAction::KillDayZ => {
-                let _ = crate::launch::kill_dayz();
-                Action::PopScreen
-            }
+            ConfirmAction::KillDayZ => match crate::launch::kill_dayz() {
+                Ok(()) => {
+                    app.skip_running_check_once = true;
+                    Action::LaunchGame
+                }
+                Err(error) => {
+                    app.status_message = Some(format!("Error: {error}"));
+                    Action::PopScreen
+                }
+            },
             ConfirmAction::RemoveManagedMods => {
                 if let (Some(wp), Some(dp)) = (&app.workshop_path, &app.dayz_path) {
                     match crate::mods::remove_managed_mods(wp, dp) {
@@ -311,6 +317,25 @@ mod tests {
 
         assert_eq!(action, Action::PopScreen);
         assert!(!dayz_path.join("@123").exists());
+
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn confirming_kill_dayz_retries_launch_flow() {
+        let root = temp_path("popup-kill-dayz");
+        let dayz_path = root.join("dayz");
+        let workshop_path = root.join("workshop");
+        fs::create_dir_all(&dayz_path).expect("create dayz path");
+        fs::create_dir_all(&workshop_path).expect("create workshop path");
+
+        let mut app = test_app(dayz_path, workshop_path);
+        let screen = ConfirmScreen::new(ConfirmAction::KillDayZ);
+
+        let action = screen.confirm(&mut app);
+
+        assert_eq!(action, Action::LaunchGame);
+        assert!(app.skip_running_check_once);
 
         fs::remove_dir_all(root).expect("remove temp root");
     }

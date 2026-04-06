@@ -44,6 +44,7 @@ pub struct App {
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pub available_update: Option<ReleaseInfo>,
     pub update_mods_before_launch: bool,
+    pub(crate) skip_running_check_once: bool,
     pending_launch: Option<PendingLaunch>,
     asked_update_mods: bool,
     screen_stack: Vec<Box<dyn Screen>>,
@@ -72,6 +73,7 @@ impl App {
             server_runtime: HashMap::new(),
             available_update: None,
             update_mods_before_launch: false,
+            skip_running_check_once: false,
             pending_launch: None,
             asked_update_mods: false,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
@@ -289,6 +291,14 @@ impl App {
     }
 
     fn do_launch(&mut self) {
+        if !self.skip_running_check_once && crate::launch::is_dayz_running() {
+            let mut screen = self.create_screen(ScreenId::Confirm(ConfirmAction::KillDayZ));
+            screen.on_enter(self);
+            self.screen_stack.push(screen);
+            return;
+        }
+        self.skip_running_check_once = false;
+
         let server = self.selected_server.and_then(|i| self.servers.get(i));
         let has_mods = server.map(|s| !s.mods.is_empty()).unwrap_or(false);
 
@@ -546,7 +556,12 @@ mod tests {
     use crate::config::Config;
     use crate::profile::Profile;
     use crate::steam::ItemState;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_app() -> App {
         let data_dir = std::env::temp_dir().join("dayz-cmd-tests-app");
@@ -574,6 +589,59 @@ mod tests {
             },
             Profile::default(),
         )
+    }
+
+    fn temp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dayz-cmd-{prefix}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ))
+    }
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("lock env")
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &std::ffi::OsStr) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: tests serialize environment access with ENV_LOCK.
+            unsafe { std::env::set_var(key, value) };
+            Self {
+                key,
+                value: previous,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.value {
+                // SAFETY: tests serialize environment access with ENV_LOCK.
+                unsafe { std::env::set_var(self.key, value) };
+            } else {
+                // SAFETY: tests serialize environment access with ENV_LOCK.
+                unsafe { std::env::remove_var(self.key) };
+            }
+        }
+    }
+
+    fn write_executable(path: &PathBuf, body: &str) {
+        fs::write(path, body).expect("write script");
+        let mut perms = fs::metadata(path).expect("script metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("set script permissions");
     }
 
     #[test]
@@ -655,5 +723,32 @@ mod tests {
 
         assert!(app.available_update.is_none());
         assert_eq!(app.screen_stack.len(), 1);
+    }
+
+    #[test]
+    fn launch_prompts_to_kill_existing_dayz_process() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 0\n");
+        write_executable(&bin_dir.join("steam"), "#!/bin/sh\nexit 0\n");
+
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut combined_path = OsString::from(bin_dir.as_os_str());
+        if !original_path.is_empty() {
+            combined_path.push(":");
+            combined_path.push(&original_path);
+        }
+        let path_env = EnvVarGuard::set("PATH", &combined_path);
+        let mut app = test_app();
+        app.direct_connect_target = Some(("1.2.3.4".into(), 2302));
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(app.screen_stack.len(), 2);
+        assert!(app.running);
+
+        drop(path_env);
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
     }
 }
