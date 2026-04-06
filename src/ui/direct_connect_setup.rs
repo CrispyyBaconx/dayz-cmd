@@ -262,11 +262,34 @@ mod tests {
     }
 
     #[test]
-    fn password_prompt_flow_stores_password_in_shared_launch_prep() {
+    fn password_prompt_flow_returns_to_setup_after_storing_password() {
         let mut app = test_app();
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: vec![
+                ModInfo {
+                    name: "Mod 111".into(),
+                    id: 111,
+                    timestamp: 0,
+                    size: 0,
+                },
+                ModInfo {
+                    name: "Mod 222".into(),
+                    id: 222,
+                    timestamp: 0,
+                    size: 0,
+                },
+            ],
+        };
         app.launch_prep = Some(prep("5.6.7.8", 2402));
         let mut screen = DirectConnectSetupScreen::new();
         screen.on_enter(&mut app);
+
+        let toggle_action = screen.handle_key(
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+            &mut app,
+        );
+        assert_eq!(toggle_action, Action::None);
 
         let action = screen.handle_key(
             KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
@@ -285,7 +308,24 @@ mod tests {
         let prompt_action =
             prompt.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut app);
 
-        assert_eq!(prompt_action, Action::LaunchGame);
+        assert_eq!(prompt_action, Action::PopScreen);
+        assert_eq!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_deref()),
+            Some("secret")
+        );
+
+        let launch_action = screen.handle_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        );
+
+        assert_eq!(launch_action, Action::LaunchGame);
+        assert_eq!(
+            app.launch_prep.as_ref().map(|prep| prep.mod_ids.clone()),
+            Some(vec![111])
+        );
         assert_eq!(
             app.launch_prep
                 .as_ref()
@@ -309,7 +349,10 @@ mod tests {
         let mut screen = DirectConnectSetupScreen::new();
         screen.on_enter(&mut app);
 
-        let action = screen.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut app);
+        let action = screen.handle_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        );
 
         assert_eq!(action, Action::LaunchGame);
     }

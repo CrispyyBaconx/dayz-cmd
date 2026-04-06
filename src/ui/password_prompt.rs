@@ -70,7 +70,10 @@ impl Screen for PasswordPromptScreen {
                     return Action::None;
                 }
                 app.set_launch_password(Some(self.password.clone()));
-                Action::LaunchGame
+                match app.launch_prep.as_ref().map(|prep| &prep.target) {
+                    Some(crate::app::LaunchTarget::KnownServer(_)) => Action::LaunchGame,
+                    _ => Action::PopScreen,
+                }
             }
             KeyCode::Char(c) => {
                 self.password.push(c);
@@ -132,6 +135,32 @@ mod tests {
         let action = screen.handle_key(KeyEvent::from(KeyCode::Enter), &mut app);
 
         assert_eq!(action, Action::LaunchGame);
+        assert_eq!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_deref()),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn enter_on_direct_connect_password_prompt_returns_to_setup_after_storing_password() {
+        let mut screen = PasswordPromptScreen::new();
+        screen.password = "secret".into();
+        let mut app = test_app();
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::DirectConnect {
+                ip: "5.6.7.8".into(),
+                port: 2402,
+            },
+            mod_ids: Vec::new(),
+            password: None,
+            offline_spawn_enabled: None,
+        });
+
+        let action = screen.handle_key(KeyEvent::from(KeyCode::Enter), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
         assert_eq!(
             app.launch_prep
                 .as_ref()
