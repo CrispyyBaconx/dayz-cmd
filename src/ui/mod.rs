@@ -44,6 +44,7 @@ pub enum ConfirmAction {
     KillDayZ,
     RemoveManagedMods,
     RemoveModLinks,
+    UpdateModsBeforeLaunch,
 }
 
 pub trait Screen {

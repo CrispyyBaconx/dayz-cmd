@@ -41,7 +41,9 @@ pub struct App {
     pub selected_server: Option<usize>,
     pub direct_connect_target: Option<(String, u16)>,
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
+    pub update_mods_before_launch: bool,
     pending_launch: Option<PendingLaunch>,
+    asked_update_mods: bool,
     screen_stack: Vec<Box<dyn Screen>>,
 }
 
@@ -66,7 +68,9 @@ impl App {
             selected_server: None,
             direct_connect_target: None,
             server_runtime: HashMap::new(),
+            update_mods_before_launch: false,
             pending_launch: None,
+            asked_update_mods: false,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
         }
     }
@@ -261,6 +265,18 @@ impl App {
     }
 
     fn do_launch(&mut self) {
+        let server = self.selected_server.and_then(|i| self.servers.get(i));
+        let has_mods = server.map(|s| !s.mods.is_empty()).unwrap_or(false);
+
+        if has_mods && self.steam.is_some() && !self.asked_update_mods {
+            self.asked_update_mods = true;
+            let mut screen =
+                self.create_screen(ScreenId::Confirm(ConfirmAction::UpdateModsBeforeLaunch));
+            screen.on_enter(self);
+            self.screen_stack.push(screen);
+            return;
+        }
+
         let player = self
             .profile
             .player
@@ -301,20 +317,27 @@ impl App {
 
         if !mod_ids.is_empty() && (self.dayz_path.is_none() || self.workshop_path.is_none()) {
             self.status_message = Some("Cannot manage server mods: Steam library path not detected".into());
+            self.asked_update_mods = false;
             return;
         }
 
-        let missing_local = crate::mods::get_missing_mods(&self.mods_db, &mod_ids);
-        if !missing_local.is_empty() {
+        let ids_to_check = if self.update_mods_before_launch {
+            mod_ids.clone()
+        } else {
+            crate::mods::get_missing_mods(&self.mods_db, &mod_ids)
+        };
+
+        if !ids_to_check.is_empty() {
             let Some(steam) = self.steam.as_ref() else {
                 self.status_message = Some(format!(
                     "Missing mods not installed locally: {}",
-                    format_mod_ids(&missing_local)
+                    format_mod_ids(&ids_to_check)
                 ));
+                self.asked_update_mods = false;
                 return;
             };
 
-            match steam.ensure_mods_downloaded(&missing_local) {
+            match steam.ensure_mods_downloaded(&ids_to_check) {
                 Ok(pending_mod_ids) if !pending_mod_ids.is_empty() => {
                     let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
                     self.status_message = Some(download_status_message(&statuses));
@@ -324,11 +347,15 @@ impl App {
                         pending_mod_ids,
                         history_entry,
                     });
+                    self.asked_update_mods = false;
+                    self.update_mods_before_launch = false;
                     return;
                 }
                 Ok(_) => {}
                 Err(e) => {
                     self.status_message = Some(format!("Failed to queue workshop downloads: {e}"));
+                    self.asked_update_mods = false;
+                    self.update_mods_before_launch = false;
                     return;
                 }
             }
@@ -336,9 +363,13 @@ impl App {
 
         if let Err(e) = self.ensure_symlinks(&mod_ids) {
             self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
+            self.asked_update_mods = false;
+            self.update_mods_before_launch = false;
             return;
         }
 
+        self.asked_update_mods = false;
+        self.update_mods_before_launch = false;
         self.finish_launch(args, history_entry);
     }
 

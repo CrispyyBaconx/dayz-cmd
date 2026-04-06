@@ -26,6 +26,21 @@ impl ConfirmScreen {
             ConfirmAction::KillDayZ => "DayZ is already running. Kill existing process?",
             ConfirmAction::RemoveManagedMods => "Remove all launcher-managed mods?",
             ConfirmAction::RemoveModLinks => "Remove all mod symlinks?",
+            ConfirmAction::UpdateModsBeforeLaunch => "Update all mods before launch?",
+        }
+    }
+
+    fn yes_label(&self) -> &str {
+        match &self.action {
+            ConfirmAction::UpdateModsBeforeLaunch => "Update",
+            _ => "Yes",
+        }
+    }
+
+    fn no_label(&self) -> &str {
+        match &self.action {
+            ConfirmAction::UpdateModsBeforeLaunch => "Skip",
+            _ => "No",
         }
     }
 }
@@ -46,15 +61,17 @@ impl Screen for ConfirmScreen {
             theme::NORMAL
         };
 
+        let yes_text = format!(" {} ", self.yes_label());
+        let no_text = format!(" {} ", self.no_label());
         let lines = vec![
             Line::from(""),
             Line::from(Span::styled(self.message(), theme::WARNING)),
             Line::from(""),
             Line::from(vec![
                 Span::raw("    "),
-                Span::styled(" Yes ", yes_style),
+                Span::styled(yes_text, yes_style),
                 Span::raw("    "),
-                Span::styled(" No ", no_style),
+                Span::styled(no_text, no_style),
             ]),
         ];
 
@@ -84,12 +101,12 @@ impl Screen for ConfirmScreen {
                 self.selected = true;
                 self.confirm(app)
             }
-            KeyCode::Char('n') => Action::PopScreen,
+            KeyCode::Char('n') => self.decline(app),
             KeyCode::Enter => {
                 if self.selected {
                     self.confirm(app)
                 } else {
-                    Action::PopScreen
+                    self.decline(app)
                 }
             }
             _ => Action::None,
@@ -98,6 +115,16 @@ impl Screen for ConfirmScreen {
 }
 
 impl ConfirmScreen {
+    fn decline(&self, app: &mut App) -> Action {
+        match &self.action {
+            ConfirmAction::UpdateModsBeforeLaunch => {
+                app.update_mods_before_launch = false;
+                Action::LaunchGame
+            }
+            _ => Action::PopScreen,
+        }
+    }
+
     fn confirm(&self, app: &mut App) -> Action {
         match &self.action {
             ConfirmAction::Quit => Action::Quit,
@@ -130,6 +157,10 @@ impl ConfirmScreen {
                     }
                 }
                 Action::PopScreen
+            }
+            ConfirmAction::UpdateModsBeforeLaunch => {
+                app.update_mods_before_launch = true;
+                Action::LaunchGame
             }
         }
     }
