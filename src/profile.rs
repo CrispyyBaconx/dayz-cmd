@@ -116,6 +116,10 @@ impl Profile {
             .collect()
     }
 
+    pub fn offline_prefs(&self, mission_id: &str) -> Option<&OfflineMissionPrefs> {
+        self.offline.get(mission_id)
+    }
+
     pub fn toggle_option(&mut self, key: &str) -> Option<bool> {
         let option = self.options.get_mut(key)?;
         option.enabled = !option.enabled;
@@ -345,6 +349,25 @@ mod tests {
                 .offline
                 .get("managed:DayZCommunityOfflineMode.ChernarusPlus")
         );
+    }
+
+    #[test]
+    fn offline_prefs_expose_remembered_mod_ids_and_spawn_toggle() {
+        let mut profile = Profile::default();
+        profile.offline.insert(
+            "managed:DayZCommunityOfflineMode.Namalsk".into(),
+            OfflineMissionPrefs {
+                mod_ids: vec![1564026768, 2289456201],
+                spawn_enabled: false,
+            },
+        );
+
+        let prefs = profile
+            .offline_prefs("managed:DayZCommunityOfflineMode.Namalsk")
+            .expect("offline prefs");
+
+        assert_eq!(prefs.mod_ids, vec![1564026768, 2289456201]);
+        assert!(!prefs.spawn_enabled);
     }
 
     #[test]

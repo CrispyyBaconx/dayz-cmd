@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use std::fs;
 
-use super::{Action, ConfirmAction, Screen, theme};
+use super::{Action, ConfirmAction, InfoScreenData, Screen, ScreenId, theme};
 use crate::app::App;
 
 pub struct ConfirmScreen {
@@ -31,6 +31,7 @@ impl ConfirmScreen {
             ConfirmAction::MigrateLegacy => {
                 "Legacy dayz-ctl config found. Migrate favorites and history?"
             }
+            ConfirmAction::FixMaxMapCount => "vm.max_map_count is too low. Fix it now?",
         }
     }
 
@@ -38,6 +39,7 @@ impl ConfirmScreen {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => "Update",
             ConfirmAction::MigrateLegacy => "Migrate",
+            ConfirmAction::FixMaxMapCount => "Fix",
             _ => "Yes",
         }
     }
@@ -46,6 +48,7 @@ impl ConfirmScreen {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => "Skip",
             ConfirmAction::MigrateLegacy => "Skip",
+            ConfirmAction::FixMaxMapCount => "Commands",
             _ => "No",
         }
     }
@@ -94,11 +97,11 @@ impl Screen for ConfirmScreen {
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            return Action::PopScreen;
+            return self.cancel(app);
         }
 
         match key.code {
-            KeyCode::Esc => Action::PopScreen,
+            KeyCode::Esc => self.cancel(app),
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.selected = !self.selected;
                 Action::None
@@ -121,6 +124,13 @@ impl Screen for ConfirmScreen {
 }
 
 impl ConfirmScreen {
+    fn cancel(&self, app: &mut App) -> Action {
+        match self.action {
+            ConfirmAction::FixMaxMapCount => self.decline(app),
+            _ => Action::PopScreen,
+        }
+    }
+
     fn decline(&self, app: &mut App) -> Action {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => {
@@ -128,6 +138,10 @@ impl ConfirmScreen {
                 Action::LaunchGame
             }
             ConfirmAction::MigrateLegacy => Action::PopScreen,
+            ConfirmAction::FixMaxMapCount => Action::PushScreen(ScreenId::Info(InfoScreenData {
+                title: "vm.max_map_count check".into(),
+                lines: crate::config::max_map_count_commands().to_vec(),
+            })),
             _ => Action::PopScreen,
         }
     }
@@ -175,6 +189,13 @@ impl ConfirmScreen {
                 app.update_mods_before_launch = true;
                 Action::LaunchGame
             }
+            ConfirmAction::FixMaxMapCount => match crate::config::fix_max_map_count() {
+                Ok(()) => Action::Quit,
+                Err(error) => {
+                    app.status_message = Some(format!("Failed to fix vm.max_map_count: {error}"));
+                    Action::Quit
+                }
+            },
             ConfirmAction::MigrateLegacy => {
                 let legacy_profile = crate::config::legacy_data_dir().join("profile.json");
                 let migrated_profile = legacy_profile.with_extension("json.migrated");
@@ -213,11 +234,13 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::profile::Profile;
+    use crate::ui::{InfoScreenData, ScreenId};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs as unix_fs;
-    use std::path::PathBuf;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
     use std::sync::{Mutex, MutexGuard};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -298,6 +321,38 @@ mod tests {
         }
     }
 
+    fn write_executable(path: &Path, body: &str) {
+        fs::write(path, body).expect("write script");
+        let mut perms = fs::metadata(path).expect("script metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("set script permissions");
+    }
+
+    fn setup_sudo_failure_script(bin_dir: &Path) {
+        fs::create_dir_all(bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("sudo"), "#!/bin/sh\nexit 1\n");
+    }
+
+    fn setup_sh_success_script(bin_dir: &Path) {
+        fs::create_dir_all(bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("sh"), "#!/bin/sh\nexit 0\n");
+    }
+
+    fn setup_pkill_success_script(bin_dir: &Path) {
+        fs::create_dir_all(bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pkill"), "#!/bin/sh\nexit 0\n");
+    }
+
+    fn prepend_path(bin_dir: &Path) -> EnvVarGuard {
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut combined_path = OsString::from(bin_dir.as_os_str());
+        if !original_path.is_empty() {
+            combined_path.push(":");
+            combined_path.push(&original_path);
+        }
+        EnvVarGuard::set("PATH", &combined_path)
+    }
+
     #[test]
     fn confirming_remove_mod_links_executes_action() {
         let root = temp_path("popup-remove-links");
@@ -318,6 +373,123 @@ mod tests {
         assert_eq!(action, Action::PopScreen);
         assert!(!dayz_path.join("@123").exists());
 
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn confirming_kill_dayz_retries_launch_flow() {
+        let _guard = env_lock();
+        let root = temp_path("popup-kill-dayz");
+        let bin_dir = root.join("bin");
+        let dayz_path = root.join("dayz");
+        let workshop_path = root.join("workshop");
+        setup_pkill_success_script(&bin_dir);
+        let path_env = prepend_path(&bin_dir);
+        fs::create_dir_all(&dayz_path).expect("create dayz path");
+        fs::create_dir_all(&workshop_path).expect("create workshop path");
+
+        let mut app = test_app(dayz_path, workshop_path);
+        let screen = ConfirmScreen::new(ConfirmAction::KillDayZ);
+
+        let action = screen.confirm(&mut app);
+
+        assert_eq!(action, Action::LaunchGame);
+        assert!(app.skip_running_check_once);
+
+        drop(path_env);
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn declining_max_map_count_fix_shows_commands_and_exits_via_info_screen() {
+        let mut app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
+
+        let action = screen.decline(&mut app);
+
+        assert_eq!(
+            action,
+            Action::PushScreen(ScreenId::Info(InfoScreenData {
+                title: "vm.max_map_count check".into(),
+                lines: vec![
+                    r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#
+                        .into(),
+                    "sudo sysctl -w vm.max_map_count=1048576".into(),
+                ],
+            }))
+        );
+    }
+
+    #[test]
+    fn escape_and_ctrl_c_on_max_map_count_fix_follow_decline_flow() {
+        let mut esc_app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let mut ctrl_c_app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let mut screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
+
+        let esc_action = screen.handle_key(
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut esc_app,
+        );
+        let ctrl_c_action = screen.handle_key(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut ctrl_c_app,
+        );
+
+        let expected = Action::PushScreen(ScreenId::Info(InfoScreenData {
+            title: "vm.max_map_count check".into(),
+            lines: vec![
+                r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#.into(),
+                "sudo sysctl -w vm.max_map_count=1048576".into(),
+            ],
+        }));
+
+        assert_eq!(esc_action, expected.clone());
+        assert_eq!(ctrl_c_action, expected);
+    }
+
+    #[test]
+    fn confirming_max_map_count_fix_exits_when_the_fix_path_fails() {
+        let _guard = env_lock();
+        let root = temp_path("popup-max-map-count-fail");
+        let bin_dir = root.join("bin");
+        setup_sudo_failure_script(&bin_dir);
+        let path_env = EnvVarGuard::set("PATH", bin_dir.as_os_str());
+
+        let mut app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
+
+        let action = screen.confirm(&mut app);
+
+        assert_eq!(action, Action::Quit);
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Failed to fix vm.max_map_count")
+        );
+
+        drop(path_env);
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn confirming_max_map_count_fix_exits_after_a_successful_fix() {
+        let _guard = env_lock();
+        let root = temp_path("popup-max-map-count-success");
+        let bin_dir = root.join("bin");
+        setup_sh_success_script(&bin_dir);
+        let shell_env =
+            EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_SHELL", bin_dir.join("sh").as_os_str());
+
+        let mut app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
+
+        let action = screen.confirm(&mut app);
+
+        assert_eq!(action, Action::Quit);
+        assert!(app.status_message.is_none());
+
+        drop(shell_env);
         fs::remove_dir_all(root).expect("remove temp root");
     }
 

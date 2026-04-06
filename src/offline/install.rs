@@ -1,8 +1,8 @@
 use crate::api::offline_releases::ReleaseInfo;
 use crate::config::Config;
 use crate::offline::storage::{
-    cleanup_stale_staging, offline_root, promote_release, staging_dir_for_tag,
-    validate_extracted_release,
+    cleanup_stale_staging, load_offline_state, offline_root, promote_release,
+    save_offline_state, staging_dir_for_tag, validate_extracted_release,
 };
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
@@ -41,6 +41,12 @@ pub fn install_release(
         extract_release_tarball(&archive_path, &staging_dir)?;
         let managed_missions = validate_extracted_release(&staging_dir)?;
         promote_release(config, &release.tag, &staging_dir)?;
+        let mut state = load_offline_state(config).unwrap_or_default();
+        state.installed_tag = Some(release.tag.clone());
+        state.latest_known_tag = Some(release.tag.clone());
+        state.managed_missions = managed_missions.clone();
+        state.last_check_ts = Some(chrono::Utc::now().timestamp());
+        save_offline_state(config, &state)?;
         Ok(ManagedInstallResult {
             tag: release.tag.clone(),
             managed_missions,

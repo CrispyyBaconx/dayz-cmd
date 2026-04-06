@@ -198,7 +198,7 @@ pub fn get_missing_mods(mods_db: &ModsDb, required_ids: &[u64]) -> Vec<u64> {
         .collect()
 }
 
-pub fn installed_workshop_ids(mods_db: &ModsDb) -> Vec<u64> {
+pub fn get_installed_workshop_ids(mods_db: &ModsDb) -> Vec<u64> {
     mods_db.mods.iter().map(|mod_info| mod_info.id).collect()
 }
 
@@ -266,29 +266,6 @@ mod tests {
     }
 
     #[test]
-    fn installed_workshop_ids_preserve_mod_order() {
-        let mods_db = ModsDb {
-            sum: "checksum".into(),
-            mods: vec![
-                ModInfo {
-                    name: "First".into(),
-                    id: 1001,
-                    timestamp: 0,
-                    size: 0,
-                },
-                ModInfo {
-                    name: "Second".into(),
-                    id: 2002,
-                    timestamp: 0,
-                    size: 0,
-                },
-            ],
-        };
-
-        assert_eq!(installed_workshop_ids(&mods_db), vec![1001, 2002]);
-    }
-
-    #[test]
     fn creates_and_removes_mod_symlinks() {
         let root = temp_path("mods-links");
         let dayz_path = root.join("dayz");
@@ -304,5 +281,28 @@ mod tests {
         assert!(!dayz_path.join("@123456").exists());
 
         fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn derives_installed_workshop_ids_from_mods_db() {
+        let db = ModsDb {
+            sum: "abc".into(),
+            mods: vec![
+                ModInfo {
+                    name: "First".into(),
+                    id: 111,
+                    timestamp: 0,
+                    size: 0,
+                },
+                ModInfo {
+                    name: "Second".into(),
+                    id: 222,
+                    timestamp: 0,
+                    size: 0,
+                },
+            ],
+        };
+
+        assert_eq!(get_installed_workshop_ids(&db), vec![111, 222]);
     }
 }

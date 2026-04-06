@@ -70,7 +70,10 @@ impl Screen for PasswordPromptScreen {
                     return Action::None;
                 }
                 app.set_launch_password(Some(self.password.clone()));
-                Action::LaunchGame
+                match app.launch_prep.as_ref().map(|prep| &prep.target) {
+                    Some(crate::app::LaunchTarget::KnownServer(_)) => Action::LaunchGame,
+                    _ => Action::PopScreen,
+                }
             }
             KeyCode::Char(c) => {
                 self.password.push(c);
@@ -84,6 +87,7 @@ impl Screen for PasswordPromptScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{LaunchPrep, LaunchTarget};
     use crate::config::Config;
     use crate::profile::Profile;
     use std::path::PathBuf;
@@ -121,11 +125,8 @@ mod tests {
         let mut screen = PasswordPromptScreen::new();
         screen.password = "secret".into();
         let mut app = test_app();
-        app.launch_prep = Some(crate::app::LaunchPrep {
-            target: crate::app::LaunchTarget::DirectConnect {
-                ip: "1.2.3.4".into(),
-                port: 2302,
-            },
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::KnownServer(0),
             mod_ids: Vec::new(),
             password: None,
             offline_spawn_enabled: None,
@@ -139,6 +140,57 @@ mod tests {
                 .as_ref()
                 .and_then(|prep| prep.password.as_deref()),
             Some("secret")
+        );
+    }
+
+    #[test]
+    fn enter_on_direct_connect_password_prompt_returns_to_setup_after_storing_password() {
+        let mut screen = PasswordPromptScreen::new();
+        screen.password = "secret".into();
+        let mut app = test_app();
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::DirectConnect {
+                ip: "5.6.7.8".into(),
+                port: 2402,
+            },
+            mod_ids: Vec::new(),
+            password: None,
+            offline_spawn_enabled: None,
+        });
+
+        let action = screen.handle_key(KeyEvent::from(KeyCode::Enter), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
+        assert_eq!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_deref()),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn escape_clears_shared_launch_password() {
+        let mut screen = PasswordPromptScreen::new();
+        let mut app = test_app();
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::DirectConnect {
+                ip: "5.6.7.8".into(),
+                port: 2402,
+            },
+            mod_ids: Vec::new(),
+            password: Some("secret".into()),
+            offline_spawn_enabled: None,
+        });
+
+        let action = screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
+        assert!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_ref())
+                .is_none()
         );
     }
 }

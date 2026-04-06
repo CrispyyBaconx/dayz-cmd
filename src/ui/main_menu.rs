@@ -10,12 +10,12 @@ use crate::app::App;
 
 pub struct MainMenuScreen {
     pub list_state: ListState,
-    items: Vec<MenuItem>,
+    pub items: Vec<MenuItem>,
 }
 
 #[derive(Debug, Clone)]
-struct MenuItem {
-    label: String,
+pub struct MenuItem {
+    pub label: String,
     action: MenuAction,
 }
 
@@ -26,6 +26,7 @@ enum MenuAction {
     Favorites,
     RecentlyPlayed,
     DirectConnect,
+    OfflineMode,
     LaunchGame,
     News,
     Config,
@@ -69,6 +70,10 @@ impl MainMenuScreen {
             MenuItem {
                 label: "Direct Connect".into(),
                 action: MenuAction::DirectConnect,
+            },
+            MenuItem {
+                label: "Offline Mode".into(),
+                action: MenuAction::OfflineMode,
             },
             MenuItem {
                 label: "Launch Game".into(),
@@ -142,6 +147,7 @@ impl Screen for MainMenuScreen {
                             MenuAction::DirectConnect => {
                                 Action::PushScreen(ScreenId::DirectConnect)
                             }
+                            MenuAction::OfflineMode => Action::PushScreen(ScreenId::OfflineBrowser),
                             MenuAction::LaunchGame => Action::LaunchGame,
                             MenuAction::News => Action::PushScreen(ScreenId::News),
                             MenuAction::Config => Action::PushScreen(ScreenId::Config),

@@ -1,8 +1,12 @@
 pub mod config_screen;
 pub mod direct_connect;
+pub mod direct_connect_setup;
 pub mod filter;
+pub mod info_screen;
 pub mod main_menu;
 pub mod news;
+pub mod offline_browser;
+pub mod offline_setup;
 pub mod password_prompt;
 pub mod popup;
 pub mod server_browser;
@@ -23,9 +27,10 @@ pub enum Action {
     PopScreen,
     ReplaceScreen(ScreenId),
     LaunchGame,
-    RefreshInstalledMods,
     RunSelfUpdate,
     CheckForUpdates,
+    RefreshInstalledMods,
+    OfflineInstallOrUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,10 +44,20 @@ pub enum ScreenId {
     Config,
     News,
     DirectConnect,
+    OfflineBrowser,
+    DirectConnectSetup,
+    OfflineSetup,
     PasswordPrompt,
     FilterSelect,
     UpdatePrompt,
+    Info(InfoScreenData),
     Confirm(ConfirmAction),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InfoScreenData {
+    pub title: String,
+    pub lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +68,7 @@ pub enum ConfirmAction {
     RemoveModLinks,
     UpdateModsBeforeLaunch,
     MigrateLegacy,
+    FixMaxMapCount,
 }
 
 pub trait Screen {
@@ -63,6 +79,3 @@ pub trait Screen {
         Action::None
     }
 }
-
-#[allow(unused_imports)]
-pub(crate) use crate::app::{LaunchPrep as AppLaunchPrep, LaunchTarget as AppLaunchTarget};

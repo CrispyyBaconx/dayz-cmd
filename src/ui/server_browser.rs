@@ -363,7 +363,10 @@ impl ServerBrowserScreen {
                 };
 
                 Row::new(vec![
-                    Cell::from(truncate_str(&s.name, 40)),
+                    Cell::from(truncate_str(
+                        &server_name_for_source(&self.source, app, s),
+                        40,
+                    )),
                     Cell::from(format!("{}/{}", s.players, s.max_players)).style(player_style),
                     Cell::from(truncate_str(&s.map, 18)),
                     Cell::from(if s.mods.is_empty() {
@@ -517,6 +520,43 @@ fn truncate_str(s: &str, max: usize) -> String {
     }
 }
 
+fn server_name_for_source(
+    source: &BrowseSource,
+    app: &App,
+    server: &crate::server::Server,
+) -> String {
+    match source {
+        BrowseSource::History => app
+            .profile
+            .history
+            .iter()
+            .find(|entry| entry.ip == server.endpoint.ip && entry.port == server.endpoint.port)
+            .map(|entry| {
+                format!(
+                    "{} [{}]",
+                    server.name,
+                    format_history_age(entry.ts, chrono::Utc::now().timestamp())
+                )
+            })
+            .unwrap_or_else(|| server.name.clone()),
+        _ => server.name.clone(),
+    }
+}
+
+fn format_history_age(ts: i64, now: i64) -> String {
+    let diff = now.saturating_sub(ts);
+
+    if diff < 30 {
+        format!("{diff}s")
+    } else if diff < 3600 {
+        format!("{}m", (diff + 30) / 60)
+    } else if diff < 86_400 {
+        format!("{}h", (diff + 1800) / 3600)
+    } else {
+        format!("{}d", (diff + 43_200) / 86_400)
+    }
+}
+
 impl SortColumn {
     fn label(self) -> &'static str {
         match self {
@@ -559,7 +599,11 @@ fn sorted_indices(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::App;
+    use crate::config::Config;
+    use crate::profile::{HistoryEntry, Profile};
     use crate::server::types::{Server, ServerEndpoint, ServerMod};
+    use std::path::PathBuf;
 
     fn make_server(name: &str, players: u32, map: &str, mod_count: usize) -> Server {
         Server {
@@ -622,5 +666,57 @@ mod tests {
             .collect();
 
         assert_eq!(names, vec!["Alpha", "Mike", "Zulu"]);
+    }
+
+    #[test]
+    fn formats_history_relative_age_like_original_launcher() {
+        assert_eq!(format_history_age(100, 120), "20s");
+        assert_eq!(format_history_age(100, 160), "1m");
+        assert_eq!(format_history_age(100, 3700), "1h");
+        assert_eq!(format_history_age(100, 200000), "2d");
+    }
+
+    #[test]
+    fn history_source_appends_relative_age_to_server_name() {
+        let mut profile = Profile::default();
+        profile.history.push(HistoryEntry {
+            name: "Alpha".into(),
+            ip: "1.2.3.4".into(),
+            port: 27016,
+            ts: chrono::Utc::now().timestamp() - 7200,
+        });
+        let data_dir = std::env::temp_dir().join("dayz-cmd-tests-history-browser");
+        let app = App::new(
+            Config {
+                path: data_dir.join("dayz-cmd.conf"),
+                data_dir: data_dir.clone(),
+                server_db_path: data_dir.join("servers.json"),
+                news_db_path: data_dir.join("news.json"),
+                mods_db_path: data_dir.join("mods.json"),
+                profile_path: data_dir.join("profile.json"),
+                api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
+                request_timeout: 10,
+                server_request_timeout: 30,
+                server_db_ttl: 300,
+                news_db_ttl: 3600,
+                history_size: 10,
+                steamcmd_enabled: true,
+                filter_mod_limit: 10,
+                filter_players_limit: 50,
+                filter_players_slots: 60,
+                applications_dir: PathBuf::from("/tmp"),
+            },
+            profile,
+        );
+
+        let label = server_name_for_source(
+            &BrowseSource::History,
+            &app,
+            &make_server("Alpha", 10, "chernarus", 1),
+        );
+
+        assert!(label.starts_with("Alpha [2h]"));
     }
 }

@@ -1,9 +1,11 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const DAYZ_GAME_ID: u32 = 221100;
+pub const REQUIRED_MAX_MAP_COUNT: u64 = 1_048_576;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone)]
@@ -148,10 +150,79 @@ fn parse_or<T: std::str::FromStr>(vars: &HashMap<String, String>, key: &str, def
         .unwrap_or(default)
 }
 
+pub(crate) fn max_map_count_state_from_path(path: &Path) -> Result<MaxMapCountState> {
+    if !path.exists() {
+        return Ok(MaxMapCountState::UnsupportedPlatform);
+    }
+
+    let contents = fs::read_to_string(path)?;
+    let current = contents
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| anyhow::anyhow!("failed to parse vm.max_map_count: {error}"))?;
+
+    if current < REQUIRED_MAX_MAP_COUNT {
+        Ok(MaxMapCountState::NeedsFix(current))
+    } else {
+        Ok(MaxMapCountState::Ready(current))
+    }
+}
+
+pub fn current_max_map_count_state() -> Result<MaxMapCountState> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(path) = std::env::var_os("DAYZ_MAX_MAP_COUNT_PATH") {
+            return max_map_count_state_from_path(Path::new(&path));
+        }
+
+        return max_map_count_state_from_path(Path::new("/proc/sys/vm/max_map_count"));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(MaxMapCountState::UnsupportedPlatform)
+    }
+}
+
+pub fn max_map_count_commands() -> [String; 2] {
+    [
+        r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#.to_string(),
+        "sudo sysctl -w vm.max_map_count=1048576".to_string(),
+    ]
+}
+
+pub fn fix_max_map_count() -> Result<()> {
+    use std::process::Command;
+
+    for command in max_map_count_commands() {
+        let status = Command::new(max_map_count_shell())
+            .args(["-c", &command])
+            .status()?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("failed to run `{command}`"));
+        }
+    }
+
+    Ok(())
+}
+
+fn max_map_count_shell() -> OsString {
+    std::env::var_os("DAYZ_MAX_MAP_COUNT_SHELL").unwrap_or_else(|| OsString::from("sh"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaxMapCountState {
+    Ready(u64),
+    NeedsFix(u64),
+    UnsupportedPlatform,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::OsString;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use std::sync::{Mutex, MutexGuard};
 
     #[test]
@@ -198,6 +269,82 @@ mod tests {
         drop(home_env);
     }
 
+    #[test]
+    fn parses_and_compares_vm_max_map_count_from_file_contents() {
+        let _guard = env_lock();
+        let root =
+            std::env::temp_dir().join(format!("dayz-cmd-max-map-count-{}", std::process::id()));
+        fs::create_dir_all(&root).expect("create temp root");
+        let path = root.join("max_map_count");
+
+        fs::write(&path, "1048576\n").expect("write ready value");
+        assert_eq!(
+            max_map_count_state_from_path(&path).expect("read ready value"),
+            MaxMapCountState::Ready(REQUIRED_MAX_MAP_COUNT)
+        );
+
+        fs::write(&path, "524288\n").expect("write low value");
+        assert_eq!(
+            max_map_count_state_from_path(&path).expect("read low value"),
+            MaxMapCountState::NeedsFix(524288)
+        );
+
+        fs::remove_file(&path).expect("remove value file");
+        assert_eq!(
+            max_map_count_state_from_path(&path).expect("missing file"),
+            MaxMapCountState::UnsupportedPlatform
+        );
+
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn builds_the_manual_vm_max_map_count_commands() {
+        assert_eq!(
+            max_map_count_commands(),
+            [
+                r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#
+                    .to_string(),
+                "sudo sysctl -w vm.max_map_count=1048576".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn fix_max_map_count_uses_the_literal_shell_commands() {
+        let _guard = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "dayz-cmd-fix-max-map-count-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test"),
+        ));
+        let bin_dir = root.join("bin");
+        let log_path = root.join("sh.log");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(
+            &bin_dir.join("sh"),
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$FAKE_SH_LOG\"\nexit 0\n",
+        );
+        let log_env = EnvVarGuard::set("FAKE_SH_LOG", log_path.as_os_str());
+        let shell_env =
+            EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_SHELL", bin_dir.join("sh").as_os_str());
+
+        fix_max_map_count().expect("run fix commands");
+
+        assert_eq!(
+            fs::read_to_string(&log_path).expect("read shell log"),
+            format!(
+                "-c\n{}\n-c\n{}\n",
+                max_map_count_commands()[0],
+                max_map_count_commands()[1]
+            )
+        );
+
+        drop(shell_env);
+        drop(log_env);
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn env_lock() -> MutexGuard<'static, ()> {
@@ -231,5 +378,12 @@ mod tests {
                 unsafe { std::env::remove_var(self.key) };
             }
         }
+    }
+
+    fn write_executable(path: &Path, body: &str) {
+        fs::write(path, body).expect("write script");
+        let mut perms = fs::metadata(path).expect("script metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("set script permissions");
     }
 }

@@ -58,6 +58,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Connect { ip, port }) => {
+            ensure_max_map_count_ready_for_cli()?;
             run_direct_connect(config, profile, &ip, port)?;
         }
         None => {
@@ -81,12 +82,16 @@ fn run_tui(config: config::Config, profile: profile::Profile) -> Result<()> {
 
     let _ = app.profile.save(&app.config.profile_path);
     app.init_main_menu();
-    if crate::config::has_legacy_data() {
+    let startup_gate_blocked = app.ensure_startup_max_map_count_gate()?;
+
+    if !startup_gate_blocked && crate::config::has_legacy_data() {
         app.process_action(Action::PushScreen(ScreenId::Confirm(
             ConfirmAction::MigrateLegacy,
         )));
     }
-    app.check_for_updates();
+    if !startup_gate_blocked {
+        app.check_for_updates();
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -115,6 +120,20 @@ fn run_tui(config: config::Config, profile: profile::Profile) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn ensure_max_map_count_ready_for_cli() -> Result<()> {
+    match config::current_max_map_count_state()? {
+        config::MaxMapCountState::Ready(_) | config::MaxMapCountState::UnsupportedPlatform => {
+            Ok(())
+        }
+        config::MaxMapCountState::NeedsFix(current) => anyhow::bail!(
+            "vm.max_map_count is {current}, but the launcher requires {}.\n{}\n{}",
+            config::REQUIRED_MAX_MAP_COUNT,
+            config::max_map_count_commands()[0],
+            config::max_map_count_commands()[1],
+        ),
+    }
 }
 
 fn run_direct_connect(
@@ -172,10 +191,68 @@ fn run_direct_connect(
 mod tests {
     use super::*;
     use clap::CommandFactory;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::sync::{Mutex, MutexGuard};
 
     #[test]
     fn cli_is_named_dayz_cmd() {
         let command = Cli::command();
         assert_eq!(command.get_name(), "dayz-cmd");
+    }
+
+    #[test]
+    fn connect_cli_refuses_to_bypass_a_low_vm_max_map_count_gate() {
+        let _guard = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "dayz-cmd-main-max-map-count-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create temp root");
+        let path = root.join("max_map_count");
+        fs::write(&path, "524288\n").expect("write low value");
+        let env = EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_PATH", path.as_os_str());
+
+        let error = ensure_max_map_count_ready_for_cli().expect_err("gate should fail");
+
+        assert!(error.to_string().contains("vm.max_map_count"));
+
+        drop(env);
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("lock env")
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &std::ffi::OsStr) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: tests serialize environment access with ENV_LOCK.
+            unsafe { std::env::set_var(key, value) };
+            Self {
+                key,
+                value: previous,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.value {
+                // SAFETY: tests serialize environment access with ENV_LOCK.
+                unsafe { std::env::set_var(self.key, value) };
+            } else {
+                // SAFETY: tests serialize environment access with ENV_LOCK.
+                unsafe { std::env::remove_var(self.key) };
+            }
+        }
     }
 }

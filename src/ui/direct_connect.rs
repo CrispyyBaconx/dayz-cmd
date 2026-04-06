@@ -3,7 +3,7 @@ use ratatui::Frame;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-use super::{Action, Screen, theme};
+use super::{Action, Screen, ScreenId, theme};
 use crate::app::App;
 
 pub struct DirectConnectScreen {
@@ -151,9 +151,70 @@ impl Screen for DirectConnectScreen {
                 }
 
                 app.prepare_direct_connect_launch(self.ip.clone(), port);
-                Action::LaunchGame
+                Action::PushScreen(ScreenId::DirectConnectSetup)
             }
             _ => Action::None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{LaunchPrep, LaunchTarget};
+    use crate::config::Config;
+    use crate::profile::Profile;
+    use std::path::PathBuf;
+
+    fn test_app() -> App {
+        let data_dir = std::env::temp_dir().join("dayz-cmd-tests-direct-connect");
+        App::new(
+            Config {
+                path: data_dir.join("dayz-cmd.conf"),
+                data_dir: data_dir.clone(),
+                server_db_path: data_dir.join("servers.json"),
+                news_db_path: data_dir.join("news.json"),
+                mods_db_path: data_dir.join("mods.json"),
+                profile_path: data_dir.join("profile.json"),
+                api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
+                request_timeout: 10,
+                server_request_timeout: 30,
+                server_db_ttl: 300,
+                news_db_ttl: 3600,
+                history_size: 10,
+                steamcmd_enabled: true,
+                filter_mod_limit: 10,
+                filter_players_limit: 50,
+                filter_players_slots: 60,
+                applications_dir: PathBuf::from("/tmp"),
+            },
+            Profile::default(),
+        )
+    }
+
+    #[test]
+    fn unknown_direct_connect_routes_to_setup_instead_of_launching() {
+        let mut screen = DirectConnectScreen::new();
+        screen.ip = "5.6.7.8".into();
+        screen.port = "2402".into();
+        let mut app = test_app();
+
+        let action = screen.handle_key(KeyEvent::from(KeyCode::Enter), &mut app);
+
+        assert_eq!(action, Action::PushScreen(ScreenId::DirectConnectSetup));
+        assert_eq!(
+            app.launch_prep,
+            Some(LaunchPrep {
+                target: LaunchTarget::DirectConnect {
+                    ip: "5.6.7.8".into(),
+                    port: 2402,
+                },
+                mod_ids: Vec::new(),
+                password: None,
+                offline_spawn_enabled: None,
+            })
+        );
     }
 }

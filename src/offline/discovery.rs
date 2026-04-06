@@ -23,7 +23,11 @@ pub fn discover_offline_missions(
     let state = load_offline_state(config)?;
     let mut missions = Vec::new();
 
-    if let Some(tag) = state.installed_tag.as_deref() {
+    if let Some(tag) = state
+        .installed_tag
+        .as_deref()
+        .or(state.latest_known_tag.as_deref())
+    {
         let managed_root =
             crate::offline::storage::release_dir_for_tag(config, tag).join("Missions");
         missions.extend(discover_missions_at_root(
