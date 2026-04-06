@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -65,7 +65,6 @@ impl Screen for ConfirmScreen {
             Line::from(Span::styled(self.message(), theme::WARNING)),
             Line::from(""),
             Line::from(vec![
-                Span::raw("    "),
                 choice_span(self.yes_label(), self.selected),
                 Span::raw("    "),
                 choice_span(self.no_label(), !self.selected),
@@ -73,6 +72,7 @@ impl Screen for ConfirmScreen {
         ];
 
         let para = Paragraph::new(lines)
+            .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
