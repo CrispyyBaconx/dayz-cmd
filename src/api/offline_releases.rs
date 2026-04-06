@@ -39,18 +39,19 @@ fn fetch_latest_release_from_url(url: &str, timeout_secs: u64) -> Result<Option<
         .text()
         .context("Failed to read DCOM releases response")?;
 
-    Ok(parse_latest_release(&body))
+    parse_latest_release(&body)
 }
 
-pub fn parse_latest_release(body: &str) -> Option<ReleaseInfo> {
-    let releases: Vec<GithubRelease> = serde_json::from_str(body).ok()?;
-    releases
+pub fn parse_latest_release(body: &str) -> Result<Option<ReleaseInfo>> {
+    let releases: Vec<GithubRelease> =
+        serde_json::from_str(body).context("parse DCOM release metadata")?;
+    Ok(releases
         .into_iter()
         .find(|release| !release.draft && !release.prerelease)
         .map(|release| ReleaseInfo {
             tag: normalize_version(&release.tag_name),
             tarball_url: release.tarball_url,
-        })
+        }))
 }
 
 fn normalize_version(version: &str) -> String {
@@ -88,12 +89,36 @@ mod tests {
         ]
         "#;
 
-        let release = parse_latest_release(json).expect("stable release");
+        let release = parse_latest_release(json)
+            .expect("parse releases")
+            .expect("stable release");
         assert_eq!(release.tag, "0.5.0");
         assert_eq!(
             release.tarball_url,
             "https://example.test/stable-050.tar.gz"
         );
+    }
+
+    #[test]
+    fn surfaces_malformed_json_as_an_error() {
+        let err = parse_latest_release("not json").expect_err("parse error");
+        assert!(err.to_string().contains("parse DCOM release metadata"));
+    }
+
+    #[test]
+    fn surfaces_schema_mismatches_as_an_error() {
+        let json = r#"
+        [
+          {
+            "tag_name": "0.5.0",
+            "draft": false,
+            "prerelease": false
+          }
+        ]
+        "#;
+
+        let err = parse_latest_release(json).expect_err("schema error");
+        assert!(err.to_string().contains("parse DCOM release metadata"));
     }
 
     #[test]
