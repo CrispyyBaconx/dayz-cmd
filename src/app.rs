@@ -41,6 +41,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub selected_server: Option<usize>,
     pub direct_connect_target: Option<(String, u16)>,
+    pub(crate) launch_password: Option<String>,
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pub available_update: Option<ReleaseInfo>,
     pub update_mods_before_launch: bool,
@@ -70,6 +71,7 @@ impl App {
             status_message: None,
             selected_server: None,
             direct_connect_target: None,
+            launch_password: None,
             server_runtime: HashMap::new(),
             available_update: None,
             update_mods_before_launch: false,
@@ -284,6 +286,7 @@ impl App {
             ScreenId::Config => Box::new(config_screen::ConfigScreen::new()),
             ScreenId::News => Box::new(news::NewsScreen::new()),
             ScreenId::DirectConnect => Box::new(direct_connect::DirectConnectScreen::new()),
+            ScreenId::PasswordPrompt => Box::new(password_prompt::PasswordPromptScreen::new()),
             ScreenId::FilterSelect => Box::new(filter::FilterSelectScreen::new(self)),
             ScreenId::UpdatePrompt => Box::new(update_prompt::UpdatePromptScreen::new()),
             ScreenId::Confirm(action) => Box::new(popup::ConfirmScreen::new(action)),
@@ -300,6 +303,13 @@ impl App {
         self.skip_running_check_once = false;
 
         let server = self.selected_server.and_then(|i| self.servers.get(i));
+        if server.map(|entry| entry.password).unwrap_or(false) && self.launch_password.is_none() {
+            let mut screen = self.create_screen(ScreenId::PasswordPrompt);
+            screen.on_enter(self);
+            self.screen_stack.push(screen);
+            return;
+        }
+
         let has_mods = server.map(|s| !s.mods.is_empty()).unwrap_or(false);
 
         if has_mods && self.steam.is_some() && !self.asked_update_mods {
@@ -320,6 +330,7 @@ impl App {
 
         let server = self.selected_server.and_then(|i| self.servers.get(i));
         let direct_target = self.direct_connect_target.take();
+        let launch_password = self.launch_password.take();
         let mod_ids: Vec<u64> = server
             .map(|s| s.mods.iter().map(|m| m.steam_workshop_id).collect())
             .unwrap_or_default();
@@ -338,14 +349,20 @@ impl App {
             });
 
         let args = if let Some((ip, port)) = direct_target.as_ref() {
-            crate::launch::build_direct_connect_args(ip, *port, &player, &extra_args, None)
+            crate::launch::build_direct_connect_args(
+                ip,
+                *port,
+                &player,
+                &extra_args,
+                launch_password.as_deref(),
+            )
         } else {
             crate::launch::build_launch_args(
                 self.selected_server.and_then(|i| self.servers.get(i)),
                 &mod_ids,
                 &player,
                 &extra_args,
-                None,
+                launch_password.as_deref(),
             )
         };
 
@@ -555,6 +572,8 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::profile::Profile;
+    use crate::server::Server;
+    use crate::server::types::{ServerEndpoint, ServerMod};
     use crate::steam::ItemState;
     use std::ffi::OsString;
     use std::fs;
@@ -589,6 +608,30 @@ mod tests {
             },
             Profile::default(),
         )
+    }
+
+    fn sample_server(password: bool) -> Server {
+        Server {
+            name: "Test Server".into(),
+            players: 12,
+            max_players: 60,
+            time: "12:00".into(),
+            time_acceleration: Some(4.0),
+            map: "chernarusplus".into(),
+            password,
+            battleye: true,
+            vac: true,
+            first_person_only: false,
+            shard: "public".into(),
+            version: "1.0".into(),
+            environment: "w".into(),
+            game_port: 2302,
+            endpoint: ServerEndpoint {
+                ip: "1.2.3.4".into(),
+                port: 27016,
+            },
+            mods: Vec::<ServerMod>::new(),
+        }
     }
 
     fn temp_path(prefix: &str) -> PathBuf {
@@ -742,6 +785,34 @@ mod tests {
         let path_env = EnvVarGuard::set("PATH", &combined_path);
         let mut app = test_app();
         app.direct_connect_target = Some(("1.2.3.4".into(), 2302));
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(app.screen_stack.len(), 2);
+        assert!(app.running);
+
+        drop(path_env);
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn launch_prompts_for_password_on_protected_server() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-bin-password");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        write_executable(&bin_dir.join("steam"), "#!/bin/sh\nexit 0\n");
+
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut combined_path = OsString::from(bin_dir.as_os_str());
+        if !original_path.is_empty() {
+            combined_path.push(":");
+            combined_path.push(&original_path);
+        }
+        let path_env = EnvVarGuard::set("PATH", &combined_path);
+        let mut app = test_app();
+        app.servers.push(sample_server(true));
+        app.selected_server = Some(0);
 
         app.process_action(Action::LaunchGame);
 
