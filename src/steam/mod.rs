@@ -58,8 +58,12 @@ impl SteamHandle {
         friends.name()
     }
 
-    pub fn ensure_mods_downloaded(&self, workshop_ids: &[u64]) -> anyhow::Result<Vec<u64>> {
-        workshop::ensure_mods_downloaded(&self.client, workshop_ids)
+    pub fn ensure_mods_downloaded(
+        &self,
+        workshop_ids: &[u64],
+        force_update: bool,
+    ) -> anyhow::Result<Vec<u64>> {
+        workshop::ensure_mods_downloaded(&self.client, workshop_ids, force_update)
     }
 
     pub fn get_item_state(&self, workshop_id: u64) -> ItemState {
@@ -81,7 +85,11 @@ impl SteamHandle {
         "Unknown".into()
     }
 
-    pub fn ensure_mods_downloaded(&self, _workshop_ids: &[u64]) -> anyhow::Result<Vec<u64>> {
+    pub fn ensure_mods_downloaded(
+        &self,
+        _workshop_ids: &[u64],
+        _force_update: bool,
+    ) -> anyhow::Result<Vec<u64>> {
         anyhow::bail!("Steam support not compiled in")
     }
 

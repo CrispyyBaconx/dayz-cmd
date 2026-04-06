@@ -514,7 +514,7 @@ impl App {
                 return;
             };
 
-            match steam.ensure_mods_downloaded(&ids_to_check) {
+            match steam.ensure_mods_downloaded(&ids_to_check, self.update_mods_before_launch) {
                 Ok(pending_mod_ids) if !pending_mod_ids.is_empty() => {
                     let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
                     self.status_message = Some(download_status_message(&statuses));

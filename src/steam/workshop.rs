@@ -43,9 +43,21 @@ pub fn get_install_path(client: &Arc<Mutex<Client>>, workshop_id: u64) -> Result
 pub fn get_item_state(client: &Arc<Mutex<Client>>, workshop_id: u64) -> ItemState {
     let client = client.lock().unwrap();
     let ugc = client.ugc();
-    let state = ugc.item_state(PublishedFileId(workshop_id));
+    classify_item_state(ugc.item_state(PublishedFileId(workshop_id)))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ItemState {
+    NotInstalled,
+    Installed,
+    Downloading,
+    NeedsUpdate,
+}
+
+fn classify_item_state(state: steamworks::ItemState) -> ItemState {
     let installed = state.contains(steamworks::ItemState::INSTALLED);
-    let downloading = state.contains(steamworks::ItemState::DOWNLOADING);
+    let downloading = state.contains(steamworks::ItemState::DOWNLOADING)
+        || state.contains(steamworks::ItemState::DOWNLOAD_PENDING);
     let needs_update = state.contains(steamworks::ItemState::NEEDS_UPDATE);
 
     if downloading {
@@ -59,32 +71,50 @@ pub fn get_item_state(client: &Arc<Mutex<Client>>, workshop_id: u64) -> ItemStat
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ItemState {
-    NotInstalled,
-    Installed,
-    Downloading,
-    NeedsUpdate,
+fn should_queue_download(state: ItemState, force_update: bool) -> bool {
+    match state {
+        ItemState::NotInstalled | ItemState::NeedsUpdate | ItemState::Downloading => true,
+        ItemState::Installed => force_update,
+    }
 }
 
 pub fn ensure_mods_downloaded(
     client: &Arc<Mutex<Client>>,
     workshop_ids: &[u64],
+    force_update: bool,
 ) -> Result<Vec<u64>> {
     let mut missing = Vec::new();
     for &id in workshop_ids {
         let state = get_item_state(client, id);
-        match state {
-            ItemState::NotInstalled | ItemState::NeedsUpdate => {
-                subscribe_and_download(client, id)
-                    .with_context(|| format!("Failed to download workshop item {id}"))?;
-                missing.push(id);
-            }
-            ItemState::Downloading => {
-                missing.push(id);
-            }
-            ItemState::Installed => {}
+        if !should_queue_download(state.clone(), force_update) {
+            continue;
         }
+
+        if state != ItemState::Downloading {
+            subscribe_and_download(client, id)
+                .with_context(|| format!("Failed to download workshop item {id}"))?;
+        }
+        missing.push(id);
     }
     Ok(missing)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_download_pending_as_downloading() {
+        let state = classify_item_state(
+            steamworks::ItemState::INSTALLED | steamworks::ItemState::DOWNLOAD_PENDING,
+        );
+
+        assert_eq!(state, ItemState::Downloading);
+    }
+
+    #[test]
+    fn force_update_requeues_installed_mods() {
+        assert!(should_queue_download(ItemState::Installed, true));
+        assert!(!should_queue_download(ItemState::Installed, false));
+    }
 }
