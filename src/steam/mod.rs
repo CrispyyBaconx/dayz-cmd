@@ -2,11 +2,11 @@
 pub mod workshop;
 
 #[cfg(feature = "steam")]
-use steamworks::Client;
-#[cfg(feature = "steam")]
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "steam")]
 use std::thread;
+#[cfg(feature = "steam")]
+use steamworks::Client;
 
 #[cfg(feature = "steam")]
 pub use workshop::ItemState;
@@ -36,14 +36,12 @@ impl SteamHandle {
         let client = Arc::new(Mutex::new(client));
         let pump_client = Arc::clone(&client);
 
-        let _pump_thread = thread::spawn(move || {
-            loop {
-                {
-                    let c = pump_client.lock().unwrap();
-                    c.run_callbacks();
-                }
-                thread::sleep(std::time::Duration::from_millis(50));
+        let _pump_thread = thread::spawn(move || loop {
+            {
+                let c = pump_client.lock().unwrap();
+                c.run_callbacks();
             }
+            thread::sleep(std::time::Duration::from_millis(50));
         });
 
         Ok(SteamHandle {

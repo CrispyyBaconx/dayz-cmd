@@ -143,7 +143,11 @@ pub fn ensure_mod_symlinks(dayz_path: &Path, workshop_path: &Path, mod_ids: &[u6
         }
 
         unix_fs::symlink(&target, &link_path)?;
-        tracing::info!("Created symlink: {} -> {}", link_path.display(), target.display());
+        tracing::info!(
+            "Created symlink: {} -> {}",
+            link_path.display(),
+            target.display()
+        );
     }
     Ok(())
 }
@@ -195,10 +199,7 @@ pub fn get_missing_mods(mods_db: &ModsDb, required_ids: &[u64]) -> Vec<u64> {
 }
 
 pub fn find_workshop_path(steam_root: &Path) -> PathBuf {
-    steam_root
-        .join("workshop")
-        .join("content")
-        .join("221100")
+    steam_root.join("workshop").join("content").join("221100")
 }
 
 pub fn find_dayz_path(steam_root: &Path) -> PathBuf {

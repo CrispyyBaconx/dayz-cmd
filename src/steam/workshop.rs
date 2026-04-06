@@ -1,11 +1,8 @@
 use anyhow::{Context, Result};
-use steamworks::{Client, PublishedFileId};
 use std::sync::{Arc, Mutex};
+use steamworks::{Client, PublishedFileId};
 
-pub fn subscribe_and_download(
-    client: &Arc<Mutex<Client>>,
-    workshop_id: u64,
-) -> Result<()> {
+pub fn subscribe_and_download(client: &Arc<Mutex<Client>>, workshop_id: u64) -> Result<()> {
     let client = client.lock().unwrap();
     let ugc = client.ugc();
     let file_id = PublishedFileId(workshop_id);
@@ -24,23 +21,18 @@ pub fn subscribe_and_download(
 pub fn is_item_installed(client: &Arc<Mutex<Client>>, workshop_id: u64) -> bool {
     let client = client.lock().unwrap();
     let ugc = client.ugc();
-    ugc.item_install_info(PublishedFileId(workshop_id)).is_some()
+    ugc.item_install_info(PublishedFileId(workshop_id))
+        .is_some()
 }
 
-pub fn get_download_progress(
-    client: &Arc<Mutex<Client>>,
-    workshop_id: u64,
-) -> Option<(u64, u64)> {
+pub fn get_download_progress(client: &Arc<Mutex<Client>>, workshop_id: u64) -> Option<(u64, u64)> {
     let client = client.lock().unwrap();
     let ugc = client.ugc();
     ugc.item_download_info(PublishedFileId(workshop_id))
         .map(|info| (info.0, info.1))
 }
 
-pub fn get_install_path(
-    client: &Arc<Mutex<Client>>,
-    workshop_id: u64,
-) -> Result<Option<String>> {
+pub fn get_install_path(client: &Arc<Mutex<Client>>, workshop_id: u64) -> Result<Option<String>> {
     let client = client.lock().unwrap();
     let ugc = client.ugc();
     Ok(ugc
@@ -48,10 +40,7 @@ pub fn get_install_path(
         .map(|info| info.folder))
 }
 
-pub fn get_item_state(
-    client: &Arc<Mutex<Client>>,
-    workshop_id: u64,
-) -> ItemState {
+pub fn get_item_state(client: &Arc<Mutex<Client>>, workshop_id: u64) -> ItemState {
     let client = client.lock().unwrap();
     let ugc = client.ugc();
     let state = ugc.item_state(PublishedFileId(workshop_id));

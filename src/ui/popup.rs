@@ -237,16 +237,14 @@ mod tests {
         fs::create_dir_all(&dayz_path).expect("create dayz path");
         fs::create_dir_all(&workshop_path).expect("create workshop path");
         fs::create_dir_all(workshop_path.join("123")).expect("create workshop mod");
-        unix_fs::symlink(workshop_path.join("123"), dayz_path.join("@123")).expect("create symlink");
+        unix_fs::symlink(workshop_path.join("123"), dayz_path.join("@123"))
+            .expect("create symlink");
 
         let mut app = test_app(dayz_path.clone(), workshop_path);
         let mut screen = ConfirmScreen::new(ConfirmAction::RemoveModLinks);
         screen.selected = true;
 
-        let action = screen.handle_key(
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-            &mut app,
-        );
+        let action = screen.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut app);
 
         assert_eq!(action, Action::PopScreen);
         assert!(!dayz_path.join("@123").exists());

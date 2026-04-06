@@ -47,10 +47,7 @@ impl Screen for DirectConnectScreen {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled(
-                " Direct Connect to Server",
-                theme::TITLE,
-            )),
+            Line::from(Span::styled(" Direct Connect to Server", theme::TITLE)),
             Line::from(""),
             Line::from(vec![
                 Span::styled(" IP Address: ", theme::DIM),
@@ -105,8 +102,12 @@ impl Screen for DirectConnectScreen {
             }
             KeyCode::Backspace => {
                 match self.active_field {
-                    Field::Ip => { self.ip.pop(); }
-                    Field::Port => { self.port.pop(); }
+                    Field::Ip => {
+                        self.ip.pop();
+                    }
+                    Field::Port => {
+                        self.port.pop();
+                    }
                 }
                 Action::None
             }

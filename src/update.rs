@@ -83,7 +83,9 @@ fn run_exec(spec: &ExecSpec) -> Result<()> {
     for (key, value) in &spec.env {
         command.env(key, value);
     }
-    let status = command.status().with_context(|| format!("Failed to start {}", spec.program))?;
+    let status = command
+        .status()
+        .with_context(|| format!("Failed to start {}", spec.program))?;
     if !status.success() {
         anyhow::bail!("{} exited with status {status}", spec.program);
     }
@@ -123,8 +125,7 @@ mod tests {
 
     #[test]
     fn builds_installer_command_with_version_env() {
-        let exec =
-            build_installer_exec("/tmp/dayz-cmd-installer.sh", "0.4.0", "/tmp/dayz-cmd");
+        let exec = build_installer_exec("/tmp/dayz-cmd-installer.sh", "0.4.0", "/tmp/dayz-cmd");
 
         assert_eq!(exec.program, "/tmp/dayz-cmd-installer.sh");
         assert_eq!(

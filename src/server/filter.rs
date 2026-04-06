@@ -56,16 +56,15 @@ impl ServerFilter {
             ServerFilter::PlayersGreaterThan(pct) => server.player_percent() > *pct,
             ServerFilter::PlayersLessThan(pct) => server.player_percent() < *pct,
             ServerFilter::PlayerSlotsAtLeast(n) => server.max_players >= *n,
-            ServerFilter::MapName(name) => {
-                server.map.to_lowercase().contains(&name.to_lowercase())
-            }
+            ServerFilter::MapName(name) => server.map.to_lowercase().contains(&name.to_lowercase()),
             ServerFilter::ModName(name) => {
                 let lower = name.to_lowercase();
-                server.mods.iter().any(|m| m.name.to_lowercase().contains(&lower))
+                server
+                    .mods
+                    .iter()
+                    .any(|m| m.name.to_lowercase().contains(&lower))
             }
-            ServerFilter::ModId(id) => {
-                server.mods.iter().any(|m| m.steam_workshop_id == *id)
-            }
+            ServerFilter::ModId(id) => server.mods.iter().any(|m| m.steam_workshop_id == *id),
         }
     }
 

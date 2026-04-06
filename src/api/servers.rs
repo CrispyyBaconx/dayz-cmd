@@ -48,16 +48,15 @@ pub fn save_server_cache(path: &Path, data: &ServerListResponse) -> Result<()> {
 }
 
 pub fn fetch_players_online(timeout_secs: u64) -> Result<u64> {
-    let url = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=221100";
+    let url =
+        "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=221100";
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let resp: serde_json::Value = client.get(url).send()?.json()?;
-    let count = resp["response"]["player_count"]
-        .as_u64()
-        .unwrap_or(0);
+    let count = resp["response"]["player_count"].as_u64().unwrap_or(0);
     Ok(count)
 }
 

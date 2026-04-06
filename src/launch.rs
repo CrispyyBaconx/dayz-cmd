@@ -31,7 +31,11 @@ pub fn build_launch_args(
 
     if let Some(server) = server {
         let pw = if server.password { password } else { None };
-        args.extend(build_connect_args(&server.endpoint.ip, server.game_port, pw));
+        args.extend(build_connect_args(
+            &server.endpoint.ip,
+            server.game_port,
+            pw,
+        ));
     }
 
     args.extend(extra_args.iter().cloned());
@@ -71,9 +75,7 @@ pub fn is_dayz_running() -> bool {
 }
 
 pub fn kill_dayz() -> Result<()> {
-    Command::new("pkill")
-        .args(["-f", "DayZ.*exe"])
-        .status()?;
+    Command::new("pkill").args(["-f", "DayZ.*exe"]).status()?;
     Ok(())
 }
 
@@ -130,11 +132,7 @@ pub fn delete_desktop_entry(
     Ok(())
 }
 
-pub fn desktop_entry_exists(
-    applications_dir: &std::path::Path,
-    ip: &str,
-    game_port: u16,
-) -> bool {
+pub fn desktop_entry_exists(applications_dir: &std::path::Path, ip: &str, game_port: u16) -> bool {
     let filename = format!("dayz-cli-{ip}-{game_port}.desktop");
     applications_dir.join(&filename).exists()
 }
@@ -142,8 +140,8 @@ pub fn desktop_entry_exists(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::Server;
     use crate::server::types::ServerEndpoint;
+    use crate::server::Server;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -186,7 +184,13 @@ mod tests {
     #[test]
     fn builds_launch_args_for_known_server() {
         let server = sample_server();
-        let args = build_launch_args(Some(&server), &[123, 456], "Survivor", &["-nosplash".into()], None);
+        let args = build_launch_args(
+            Some(&server),
+            &[123, 456],
+            "Survivor",
+            &["-nosplash".into()],
+            None,
+        );
 
         assert!(args.contains(&"-connect=1.2.3.4".to_string()));
         assert!(args.contains(&"-port=2302".to_string()));

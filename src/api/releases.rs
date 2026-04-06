@@ -46,7 +46,11 @@ pub fn check_for_update(
     })
 }
 
-pub fn fetch_latest_release(owner: &str, repo: &str, timeout_secs: u64) -> Result<Option<ReleaseInfo>> {
+pub fn fetch_latest_release(
+    owner: &str,
+    repo: &str,
+    timeout_secs: u64,
+) -> Result<Option<ReleaseInfo>> {
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases");
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
@@ -81,7 +85,8 @@ fn parse_latest_release(body: &str) -> Option<ReleaseInfo> {
 }
 
 pub fn is_newer_version(current: &str, latest: &str) -> bool {
-    parse_version(normalize_version(latest).as_str()) > parse_version(normalize_version(current).as_str())
+    parse_version(normalize_version(latest).as_str())
+        > parse_version(normalize_version(current).as_str())
 }
 
 fn normalize_version(version: &str) -> String {
@@ -116,7 +121,10 @@ mod tests {
 
         let release = parse_latest_release(json).expect("latest release");
         assert_eq!(release.tag, "0.4.0");
-        assert_eq!(release.installer_url, "https://example.test/0.4.0/installer.sh");
+        assert_eq!(
+            release.installer_url,
+            "https://example.test/0.4.0/installer.sh"
+        );
     }
 
     #[test]

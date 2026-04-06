@@ -142,14 +142,20 @@ mod tests {
         let mut screen = UpdatePromptScreen::new();
         screen.remaining_ticks = 1;
 
-        let action = screen.on_tick(&mut App::new(crate::config::Config::load().unwrap(), crate::profile::Profile::default()));
+        let action = screen.on_tick(&mut App::new(
+            crate::config::Config::load().unwrap(),
+            crate::profile::Profile::default(),
+        ));
         assert_eq!(action, Action::PopScreen);
     }
 
     #[test]
     fn yes_and_no_keys_return_expected_actions() {
         let mut screen = UpdatePromptScreen::new();
-        let mut app = App::new(crate::config::Config::load().unwrap(), crate::profile::Profile::default());
+        let mut app = App::new(
+            crate::config::Config::load().unwrap(),
+            crate::profile::Profile::default(),
+        );
 
         assert_eq!(
             screen.handle_key(KeyEvent::from(KeyCode::Char('y')), &mut app),

@@ -31,10 +31,7 @@ impl Screen for NewsScreen {
                         Span::styled(" • ", theme::INFO),
                         Span::styled(&article.title, theme::NORMAL),
                     ]),
-                    Line::from(Span::styled(
-                        format!("   {}", article.url()),
-                        theme::DIM,
-                    )),
+                    Line::from(Span::styled(format!("   {}", article.url()), theme::DIM)),
                 ])
             })
             .collect();

@@ -144,16 +144,14 @@ impl ServerDetailScreen {
                 app.profile
                     .add_favorite(&server.name, &server.endpoint.ip, server.endpoint.port);
                 let _ = app.profile.save(&app.config.profile_path);
-                app.status_message =
-                    Some(format!("Added '{}' to favorites", server.name));
+                app.status_message = Some(format!("Added '{}' to favorites", server.name));
                 Action::PopScreen
             }
             DetailAction::RemoveFavorite => {
                 app.profile
                     .remove_favorite(&server.endpoint.ip, server.endpoint.port);
                 let _ = app.profile.save(&app.config.profile_path);
-                app.status_message =
-                    Some(format!("Removed '{}' from favorites", server.name));
+                app.status_message = Some(format!("Removed '{}' from favorites", server.name));
                 Action::PopScreen
             }
             DetailAction::OpenBattleMetrics => {
@@ -237,10 +235,7 @@ impl ServerDetailScreen {
                 info_line("Platform", s.platform_str()),
                 info_line("Ping", &ping_str),
                 info_line("Country", &country_str),
-                info_line(
-                    "BattlEye",
-                    if s.battleye { "On" } else { "Off" },
-                ),
+                info_line("BattlEye", if s.battleye { "On" } else { "Off" }),
                 info_line("IP", &addr_str),
                 info_line("Mods", &mods_str),
             ];

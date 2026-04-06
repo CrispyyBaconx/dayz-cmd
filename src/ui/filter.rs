@@ -83,15 +83,15 @@ impl FilterSelectScreen {
             FilterItem::text("Mod ID", FilterItemKind::ModId),
         ];
 
-            Self {
-                list_state: ListState::default().with_selected(Some(0)),
-                items,
-                editing: None,
-                edit_buffer: String::new(),
-                map_name: String::new(),
-                mod_name: String::new(),
-                mod_id: String::new(),
-            }
+        Self {
+            list_state: ListState::default().with_selected(Some(0)),
+            items,
+            editing: None,
+            edit_buffer: String::new(),
+            map_name: String::new(),
+            mod_name: String::new(),
+            mod_id: String::new(),
+        }
     }
 }
 
@@ -131,11 +131,21 @@ impl Screen for FilterSelectScreen {
                         (checkbox.to_string(), item.label.clone())
                     }
                     FilterItemKind::MapName => (
-                        if self.map_name.is_empty() { "[ ]" } else { "[x]" }.to_string(),
+                        if self.map_name.is_empty() {
+                            "[ ]"
+                        } else {
+                            "[x]"
+                        }
+                        .to_string(),
                         format!("{}: {}", item.label, display_value(&self.map_name)),
                     ),
                     FilterItemKind::ModName => (
-                        if self.mod_name.is_empty() { "[ ]" } else { "[x]" }.to_string(),
+                        if self.mod_name.is_empty() {
+                            "[ ]"
+                        } else {
+                            "[x]"
+                        }
+                        .to_string(),
                         format!("{}: {}", item.label, display_value(&self.mod_name)),
                     ),
                     FilterItemKind::ModId => (
@@ -269,8 +279,12 @@ impl FilterSelectScreen {
             KeyCode::Enter => {
                 if let Some(field) = self.editing.take() {
                     match field {
-                        TextFilterField::MapName => self.map_name = self.edit_buffer.trim().to_string(),
-                        TextFilterField::ModName => self.mod_name = self.edit_buffer.trim().to_string(),
+                        TextFilterField::MapName => {
+                            self.map_name = self.edit_buffer.trim().to_string()
+                        }
+                        TextFilterField::ModName => {
+                            self.mod_name = self.edit_buffer.trim().to_string()
+                        }
                         TextFilterField::ModId => self.mod_id = self.edit_buffer.trim().to_string(),
                     }
                 }
@@ -310,10 +324,7 @@ impl FilterSelectScreen {
                 Span::styled("▌", theme::INFO),
             ]),
             Line::from(""),
-            Line::from(Span::styled(
-                " Enter: save  Esc: cancel",
-                theme::KEY_HINT,
-            )),
+            Line::from(Span::styled(" Enter: save  Esc: cancel", theme::KEY_HINT)),
         ];
 
         let para = ratatui::widgets::Paragraph::new(lines).block(
@@ -327,7 +338,11 @@ impl FilterSelectScreen {
 }
 
 fn display_value(value: &str) -> &str {
-    if value.is_empty() { "-" } else { value }
+    if value.is_empty() {
+        "-"
+    } else {
+        value
+    }
 }
 
 #[cfg(test)]
@@ -369,7 +384,11 @@ mod tests {
     fn filter_screen_exposes_text_driven_filters() {
         let app = test_app();
         let screen = FilterSelectScreen::new(&app);
-        let labels: Vec<&str> = screen.items.iter().map(|item| item.label.as_str()).collect();
+        let labels: Vec<&str> = screen
+            .items
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect();
 
         assert!(labels.iter().any(|label| label.contains("Map")));
         assert!(labels.iter().any(|label| label.contains("Mod Name")));

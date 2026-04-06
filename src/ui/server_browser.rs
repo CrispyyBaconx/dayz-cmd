@@ -134,8 +134,9 @@ impl Screen for ServerBrowserScreen {
         let wide = area.width >= 120;
 
         if wide {
-            let chunks = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-                .split(area);
+            let chunks =
+                Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
+                    .split(area);
             self.render_table(f, chunks[0], app);
             self.render_detail(f, chunks[1], app);
         } else {
@@ -287,17 +288,17 @@ impl ServerBrowserScreen {
     }
 
     fn prefetch_selected_server_meta(&self, app: &mut App) {
-        if let Some(ip) = self
-            .selected_server_index()
-            .and_then(|idx| app.servers.get(idx).map(|server| server.endpoint.ip.clone()))
-        {
+        if let Some(ip) = self.selected_server_index().and_then(|idx| {
+            app.servers
+                .get(idx)
+                .map(|server| server.endpoint.ip.clone())
+        }) {
             app.ensure_server_runtime_info(&ip);
         }
     }
 
     fn render_table(&mut self, f: &mut Frame, area: Rect, app: &App) {
-        let chunks =
-            Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
+        let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 
         let mut spans = Vec::new();
         if self.search_active {
@@ -321,11 +322,11 @@ impl ServerBrowserScreen {
         ));
         let search_bar = Paragraph::new(Line::from(spans)).block(
             Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(if self.search_active {
-                        theme::INFO
-                    } else {
-                        theme::BORDER
+                .borders(Borders::ALL)
+                .border_style(if self.search_active {
+                    theme::INFO
+                } else {
+                    theme::BORDER
                 })
                 .title(match &self.source {
                     BrowseSource::All => " All Servers ",
@@ -402,7 +403,9 @@ impl ServerBrowserScreen {
     }
 
     fn render_detail(&mut self, f: &mut Frame, area: Rect, app: &App) {
-        let server = self.selected_server_index().and_then(|i| app.servers.get(i));
+        let server = self
+            .selected_server_index()
+            .and_then(|i| app.servers.get(i));
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -420,21 +423,17 @@ impl ServerBrowserScreen {
                     format!("x{}", s.time_acceleration.unwrap_or(1.0)),
                 ),
                 detail_line("Map", s.map.clone()),
-                detail_line(
-                    "Password",
-                    (if s.password { "Yes" } else { "No" }).into(),
-                ),
-                detail_line(
-                    "BattlEye",
-                    (if s.battleye { "On" } else { "Off" }).into(),
-                ),
-                detail_line(
-                    "VAC",
-                    (if s.vac { "On" } else { "Off" }).into(),
-                ),
+                detail_line("Password", (if s.password { "Yes" } else { "No" }).into()),
+                detail_line("BattlEye", (if s.battleye { "On" } else { "Off" }).into()),
+                detail_line("VAC", (if s.vac { "On" } else { "Off" }).into()),
                 detail_line(
                     "Perspective",
-                    (if s.first_person_only { "1PP" } else { "1PP/3PP" }).into(),
+                    (if s.first_person_only {
+                        "1PP"
+                    } else {
+                        "1PP/3PP"
+                    })
+                    .into(),
                 ),
                 detail_line(
                     "Official",
@@ -471,7 +470,11 @@ impl ServerBrowserScreen {
                 for m in &s.mods {
                     let installed = app.mods_db.is_installed(m.steam_workshop_id);
                     let icon = if installed { "✓" } else { "✗" };
-                    let style = if installed { theme::SUCCESS } else { theme::ERROR };
+                    let style = if installed {
+                        theme::SUCCESS
+                    } else {
+                        theme::ERROR
+                    };
                     lines.push(Line::from(vec![
                         Span::styled(format!(" {icon} "), style),
                         Span::styled(m.name.clone(), theme::NORMAL),
@@ -596,7 +599,10 @@ mod tests {
         ];
 
         let sorted = sorted_indices(&servers, vec![0, 1, 2], SortColumn::Players, true);
-        let names: Vec<&str> = sorted.iter().map(|&idx| servers[idx].name.as_str()).collect();
+        let names: Vec<&str> = sorted
+            .iter()
+            .map(|&idx| servers[idx].name.as_str())
+            .collect();
 
         assert_eq!(names, vec!["Bravo", "Charlie", "Alpha"]);
     }
@@ -610,7 +616,10 @@ mod tests {
         ];
 
         let sorted = sorted_indices(&servers, vec![0, 1, 2], SortColumn::Name, false);
-        let names: Vec<&str> = sorted.iter().map(|&idx| servers[idx].name.as_str()).collect();
+        let names: Vec<&str> = sorted
+            .iter()
+            .map(|&idx| servers[idx].name.as_str())
+            .collect();
 
         assert_eq!(names, vec!["Alpha", "Mike", "Zulu"]);
     }

@@ -127,10 +127,8 @@ impl App {
             }
         }
 
-        match crate::api::news::load_cached_news(
-            &self.config.news_db_path,
-            self.config.news_db_ttl,
-        ) {
+        match crate::api::news::load_cached_news(&self.config.news_db_path, self.config.news_db_ttl)
+        {
             Ok(Some(articles)) => self.news = articles,
             _ => {
                 self.refresh_news();
@@ -149,8 +147,7 @@ impl App {
                 {
                     data.players_online = Some(count);
                 }
-                let _ =
-                    crate::api::servers::save_server_cache(&self.config.server_db_path, &data);
+                let _ = crate::api::servers::save_server_cache(&self.config.server_db_path, &data);
                 self.players_online = data.players_online;
                 self.servers = data.result;
                 self.status_message = Some(format!("Loaded {} servers", self.servers.len()));
@@ -273,21 +270,15 @@ impl App {
     fn create_screen(&self, id: ScreenId) -> Box<dyn Screen> {
         match id {
             ScreenId::MainMenu => Box::new(main_menu::MainMenuScreen::new()),
-            ScreenId::ServerBrowser => {
-                Box::new(ServerBrowserScreen::new(BrowseSource::All))
-            }
+            ScreenId::ServerBrowser => Box::new(ServerBrowserScreen::new(BrowseSource::All)),
             ScreenId::FilteredBrowser(indices) => {
                 Box::new(ServerBrowserScreen::new(BrowseSource::Filtered(indices)))
             }
             ScreenId::FavoritesBrowser => {
                 Box::new(ServerBrowserScreen::new(BrowseSource::Favorites))
             }
-            ScreenId::HistoryBrowser => {
-                Box::new(ServerBrowserScreen::new(BrowseSource::History))
-            }
-            ScreenId::ServerDetail(idx) => {
-                Box::new(server_detail::ServerDetailScreen::new(idx))
-            }
+            ScreenId::HistoryBrowser => Box::new(ServerBrowserScreen::new(BrowseSource::History)),
+            ScreenId::ServerDetail(idx) => Box::new(server_detail::ServerDetailScreen::new(idx)),
             ScreenId::Config => Box::new(config_screen::ConfigScreen::new()),
             ScreenId::News => Box::new(news::NewsScreen::new()),
             ScreenId::DirectConnect => Box::new(direct_connect::DirectConnectScreen::new()),
@@ -349,7 +340,8 @@ impl App {
         };
 
         if !mod_ids.is_empty() && (self.dayz_path.is_none() || self.workshop_path.is_none()) {
-            self.status_message = Some("Cannot manage server mods: Steam library path not detected".into());
+            self.status_message =
+                Some("Cannot manage server mods: Steam library path not detected".into());
             self.asked_update_mods = false;
             return;
         }
@@ -642,7 +634,12 @@ mod tests {
             installer_url: "https://example.test/installer.sh".into(),
         }));
 
-        assert_eq!(app.available_update.as_ref().map(|release| release.tag.as_str()), Some("0.4.0"));
+        assert_eq!(
+            app.available_update
+                .as_ref()
+                .map(|release| release.tag.as_str()),
+            Some("0.4.0")
+        );
         assert_eq!(app.screen_stack.len(), 2);
     }
 

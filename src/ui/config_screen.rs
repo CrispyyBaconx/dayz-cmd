@@ -168,11 +168,7 @@ impl ConfigScreen {
         match item {
             ConfigItem::PlayerName => {
                 self.editing = Some(EditField::PlayerName);
-                self.edit_buffer = app
-                    .profile
-                    .player
-                    .clone()
-                    .unwrap_or_default();
+                self.edit_buffer = app.profile.player.clone().unwrap_or_default();
                 Action::None
             }
             ConfigItem::SteamRoot => {
@@ -254,21 +250,22 @@ impl ConfigScreen {
                     EditField::SteamRoot => {
                         let path = std::path::PathBuf::from(&self.edit_buffer);
                         if path.join("common/DayZ").exists() {
-                            app.profile.steam_root =
-                                Some(self.edit_buffer.clone());
+                            app.profile.steam_root = Some(self.edit_buffer.clone());
                             app.steam_root = Some(path.clone());
                             app.dayz_path = Some(crate::mods::find_dayz_path(&path));
-                            app.workshop_path =
-                                Some(crate::mods::find_workshop_path(&path));
+                            app.workshop_path = Some(crate::mods::find_workshop_path(&path));
                             let _ = app.profile.save(&app.config.profile_path);
                             app.status_message = Some("Steam root updated".into());
                         } else {
-                            app.status_message =
-                                Some("Invalid Steam root (DayZ not found)".into());
+                            app.status_message = Some("Invalid Steam root (DayZ not found)".into());
                         }
                     }
                     EditField::LaunchOptionValue(key) => {
-                        if app.profile.set_option_value(&key, &self.edit_buffer).is_some() {
+                        if app
+                            .profile
+                            .set_option_value(&key, &self.edit_buffer)
+                            .is_some()
+                        {
                             let _ = app.profile.save(&app.config.profile_path);
                             app.status_message = Some(format!("Updated launch option '{key}'"));
                         }
@@ -289,7 +286,13 @@ impl ConfigScreen {
         }
     }
 
-    fn render_edit(&self, f: &mut Frame, area: ratatui::layout::Rect, field: EditField, _app: &App) {
+    fn render_edit(
+        &self,
+        f: &mut Frame,
+        area: ratatui::layout::Rect,
+        field: EditField,
+        _app: &App,
+    ) {
         let label = match field {
             EditField::PlayerName => "Player Name",
             EditField::SteamRoot => "Steam Root Path",
@@ -298,10 +301,7 @@ impl ConfigScreen {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled(
-                format!(" Enter {label}:"),
-                theme::TITLE,
-            )),
+            Line::from(Span::styled(format!(" Enter {label}:"), theme::TITLE)),
             Line::from(""),
             Line::from(vec![
                 Span::raw(" > "),

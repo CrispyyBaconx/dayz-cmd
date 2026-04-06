@@ -133,15 +133,9 @@ impl Screen for MainMenuScreen {
                 if let Some(idx) = self.list_state.selected() {
                     if let Some(item) = self.items.get(idx) {
                         return match &item.action {
-                            MenuAction::AllServers => {
-                                Action::PushScreen(ScreenId::ServerBrowser)
-                            }
-                            MenuAction::FilterServers => {
-                                Action::PushScreen(ScreenId::FilterSelect)
-                            }
-                            MenuAction::Favorites => {
-                                Action::PushScreen(ScreenId::FavoritesBrowser)
-                            }
+                            MenuAction::AllServers => Action::PushScreen(ScreenId::ServerBrowser),
+                            MenuAction::FilterServers => Action::PushScreen(ScreenId::FilterSelect),
+                            MenuAction::Favorites => Action::PushScreen(ScreenId::FavoritesBrowser),
                             MenuAction::RecentlyPlayed => {
                                 Action::PushScreen(ScreenId::HistoryBrowser)
                             }
@@ -196,10 +190,7 @@ fn render_header(f: &mut Frame, area: Rect, _app: &App) {
                 .fg(ratatui::style::Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!("v{}", env!("CARGO_PKG_VERSION")),
-            theme::DIM,
-        ),
+        Span::styled(format!("v{}", env!("CARGO_PKG_VERSION")), theme::DIM),
     ]))
     .block(
         Block::default()
@@ -235,11 +226,7 @@ fn render_news(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_stats(f: &mut Frame, area: Rect, app: &App) {
-    let player_name = app
-        .profile
-        .player
-        .as_deref()
-        .unwrap_or("Unknown");
+    let player_name = app.profile.player.as_deref().unwrap_or("Unknown");
 
     let players_online = app
         .players_online

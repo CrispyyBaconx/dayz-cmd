@@ -91,7 +91,11 @@ impl Server {
     }
 
     pub fn time_icon(&self) -> &str {
-        if self.is_day() { "☀" } else { "🌙" }
+        if self.is_day() {
+            "☀"
+        } else {
+            "🌙"
+        }
     }
 
     pub fn platform_str(&self) -> &str {
