@@ -10,6 +10,7 @@ mod profile;
 mod server;
 mod steam;
 mod ui;
+mod update;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
