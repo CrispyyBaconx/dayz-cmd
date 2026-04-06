@@ -23,6 +23,7 @@ pub enum Action {
     PopScreen,
     ReplaceScreen(ScreenId),
     LaunchGame,
+    RefreshInstalledMods,
     RunSelfUpdate,
     CheckForUpdates,
 }

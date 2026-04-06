@@ -26,6 +26,7 @@ enum ConfigItem {
     InstalledMods,
     RemoveManagedMods,
     RemoveModLinks,
+    RefreshInstalledMods,
     RefreshServers,
     CheckForUpdates,
     About,
@@ -66,6 +67,7 @@ impl ConfigScreen {
             items.push(ConfigItem::InstalledMods);
             items.push(ConfigItem::RemoveManagedMods);
             items.push(ConfigItem::RemoveModLinks);
+            items.push(ConfigItem::RefreshInstalledMods);
         }
 
         items.push(ConfigItem::RefreshServers);
@@ -84,6 +86,7 @@ impl ConfigScreen {
             ConfigItem::InstalledMods => "Installed Mod Info",
             ConfigItem::RemoveManagedMods => "Remove Managed Mods",
             ConfigItem::RemoveModLinks => "Remove All Mod Links",
+            ConfigItem::RefreshInstalledMods => "Refresh installed mods",
             ConfigItem::RefreshServers => "Refresh Server List",
             ConfigItem::CheckForUpdates => "Check for Updates",
             ConfigItem::About => "About",
@@ -223,6 +226,7 @@ impl ConfigScreen {
                     Action::None
                 }
             }
+            ConfigItem::RefreshInstalledMods => Action::RefreshInstalledMods,
             ConfigItem::RefreshServers => {
                 app.status_message = Some("Refreshing server list...".into());
                 app.refresh_servers();
@@ -532,6 +536,34 @@ mod tests {
         assert_eq!(
             screen.execute_item(ConfigItem::CheckForUpdates, &mut app),
             Action::CheckForUpdates
+        );
+    }
+
+    #[test]
+    fn refresh_installed_mods_appears_when_mods_exist() {
+        let mut screen = ConfigScreen::new();
+        let mut app = test_app();
+        app.mods_db = crate::mods::ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 123".into(),
+                id: 123,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+
+        screen.on_enter(&mut app);
+
+        assert!(
+            screen
+                .items
+                .iter()
+                .any(|item| matches!(item, ConfigItem::RefreshInstalledMods))
+        );
+        assert_eq!(
+            screen.execute_item(ConfigItem::RefreshInstalledMods, &mut app),
+            Action::RefreshInstalledMods
         );
     }
 }

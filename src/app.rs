@@ -41,6 +41,10 @@ struct PendingDownloadStatus {
     progress: Option<(u64, u64)>,
 }
 
+fn steam_refresh_notice() -> &'static str {
+    "The DayZ game itself updates through Steam."
+}
+
 pub struct App {
     pub running: bool,
     pub config: Config,
@@ -60,6 +64,7 @@ pub struct App {
     pub update_mods_before_launch: bool,
     pub(crate) skip_running_check_once: bool,
     pending_launch: Option<PendingLaunch>,
+    pending_refresh_mod_ids: Option<Vec<u64>>,
     asked_update_mods: bool,
     screen_stack: Vec<Box<dyn Screen>>,
 }
@@ -88,6 +93,7 @@ impl App {
             update_mods_before_launch: false,
             skip_running_check_once: false,
             pending_launch: None,
+            pending_refresh_mod_ids: None,
             asked_update_mods: false,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
         }
@@ -153,15 +159,7 @@ impl App {
     }
 
     pub fn load_data(&mut self) {
-        if let Some(ref wp) = self.workshop_path {
-            match crate::mods::scan_installed_mods(wp) {
-                Ok(db) => {
-                    let _ = crate::mods::save_mods_db(&self.config.mods_db_path, &db);
-                    self.mods_db = db;
-                }
-                Err(e) => tracing::warn!("Failed to scan mods: {e}"),
-            }
-        }
+        self.reload_installed_mods();
 
         match crate::api::servers::load_cached_servers(
             &self.config.server_db_path,
@@ -309,6 +307,9 @@ impl App {
             }
             Action::LaunchGame => {
                 self.do_launch();
+            }
+            Action::RefreshInstalledMods => {
+                self.refresh_installed_mods();
             }
             Action::RunSelfUpdate => {
                 self.run_self_update();
@@ -570,11 +571,82 @@ impl App {
         }
     }
 
+    fn refresh_installed_mods(&mut self) {
+        let installed_ids = crate::mods::installed_workshop_ids(&self.mods_db);
+        if installed_ids.is_empty() {
+            self.status_message = Some(format!(
+                "No installed mods found. {}",
+                steam_refresh_notice()
+            ));
+            return;
+        }
+
+        let Some(steam) = self.steam.as_ref() else {
+            self.status_message = Some(format!(
+                "Steam is not available. {}",
+                steam_refresh_notice()
+            ));
+            return;
+        };
+
+        #[cfg(feature = "steam")]
+        let pending_ids = match queue_force_update_downloads(&installed_ids, |workshop_id| {
+            crate::steam::workshop::subscribe_and_download(&steam.client, workshop_id)
+        }) {
+            Ok(pending_ids) => pending_ids,
+            Err(error) => {
+                self.status_message = Some(format!("Failed to refresh installed mods: {error}"));
+                return;
+            }
+        };
+
+        #[cfg(not(feature = "steam"))]
+        let pending_ids = match queue_force_update_downloads(&installed_ids, |_workshop_id| {
+            anyhow::bail!("Steam support not compiled in")
+        }) {
+            Ok(pending_ids) => pending_ids,
+            Err(error) => {
+                self.status_message = Some(format!("Failed to refresh installed mods: {error}"));
+                return;
+            }
+        };
+
+        let statuses = collect_pending_download_statuses(steam, &pending_ids);
+        self.status_message = Some(format!(
+            "Refreshing installed mods via Steam. {} {}",
+            steam_refresh_notice(),
+            download_status_message(&statuses)
+        ));
+        self.pending_refresh_mod_ids = Some(pending_ids);
+    }
+
     fn ensure_symlinks(&mut self, mod_ids: &[u64]) -> anyhow::Result<()> {
         if let (Some(dp), Some(wp)) = (&self.dayz_path, &self.workshop_path) {
             crate::mods::ensure_mod_symlinks(dp, wp, mod_ids)?;
         }
         Ok(())
+    }
+
+    fn reload_installed_mods(&mut self) {
+        if let Some(ref wp) = self.workshop_path {
+            match crate::mods::scan_installed_mods(wp) {
+                Ok(db) => {
+                    let _ = crate::mods::save_mods_db(&self.config.mods_db_path, &db);
+                    self.mods_db = db;
+                }
+                Err(e) => tracing::warn!("Failed to scan mods: {e}"),
+            }
+        }
+    }
+
+    fn complete_refresh_installed_mods(&mut self, pending_ids: &[u64]) {
+        if !pending_ids.is_empty() {
+            self.reload_installed_mods();
+        }
+        self.status_message = Some(format!(
+            "Installed mods refreshed via Steam. {}",
+            steam_refresh_notice()
+        ));
     }
 
     pub fn ensure_server_runtime_info(&mut self, ip: &str) {
@@ -596,6 +668,9 @@ impl App {
         self.process_action(action);
 
         let Some(pending) = self.pending_launch.take() else {
+            if let Some(pending_refresh_mod_ids) = self.pending_refresh_mod_ids.take() {
+                self.tick_refresh_installed_mods(pending_refresh_mod_ids);
+            }
             return;
         };
 
@@ -615,6 +690,26 @@ impl App {
         } else {
             self.status_message = Some(download_status_message(&statuses));
             self.pending_launch = Some(pending);
+        }
+    }
+
+    fn tick_refresh_installed_mods(&mut self, pending_refresh_mod_ids: Vec<u64>) {
+        let Some(steam) = self.steam.as_ref() else {
+            self.status_message = Some("Waiting for Steam to resume workshop downloads".into());
+            self.pending_refresh_mod_ids = Some(pending_refresh_mod_ids);
+            return;
+        };
+
+        let statuses = collect_pending_download_statuses(steam, &pending_refresh_mod_ids);
+        if downloads_ready(&statuses) {
+            self.complete_refresh_installed_mods(&pending_refresh_mod_ids);
+        } else {
+            self.status_message = Some(format!(
+                "Refreshing installed mods via Steam. {} {}",
+                steam_refresh_notice(),
+                download_status_message(&statuses)
+            ));
+            self.pending_refresh_mod_ids = Some(pending_refresh_mod_ids);
         }
     }
 }
@@ -665,6 +760,21 @@ fn format_mod_ids(mod_ids: &[u64]) -> String {
         .map(u64::to_string)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn queue_force_update_downloads<F>(
+    workshop_ids: &[u64],
+    mut queue_download: F,
+) -> anyhow::Result<Vec<u64>>
+where
+    F: FnMut(u64) -> anyhow::Result<()>,
+{
+    let mut pending_ids = Vec::with_capacity(workshop_ids.len());
+    for &workshop_id in workshop_ids {
+        queue_download(workshop_id)?;
+        pending_ids.push(workshop_id);
+    }
+    Ok(pending_ids)
 }
 
 fn render_status_bar(f: &mut Frame, msg: &str) {
@@ -953,6 +1063,87 @@ mod tests {
                 progress: Some((10, 100)),
             },
         ]));
+    }
+
+    #[test]
+    fn refresh_installed_mods_is_a_noop_when_no_mods_are_recorded() {
+        let mut app = test_app();
+
+        app.process_action(Action::RefreshInstalledMods);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No installed mods found. The DayZ game itself updates through Steam.")
+        );
+    }
+
+    #[test]
+    fn refresh_installed_mods_is_a_noop_without_steam_handle() {
+        let mut app = test_app();
+        app.mods_db = crate::mods::ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 1001".into(),
+                id: 1001,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+
+        app.process_action(Action::RefreshInstalledMods);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Steam is not available. The DayZ game itself updates through Steam.")
+        );
+    }
+
+    #[test]
+    fn queue_force_update_downloads_marks_all_installed_ids_pending() {
+        let mut queued = Vec::new();
+
+        let pending = queue_force_update_downloads(&[1001, 2002], |workshop_id| {
+            queued.push(workshop_id);
+            Ok(())
+        })
+        .expect("queue refresh downloads");
+
+        assert_eq!(queued, vec![1001, 2002]);
+        assert_eq!(pending, vec![1001, 2002]);
+    }
+
+    #[test]
+    fn complete_refresh_installed_mods_rescans_and_saves_mods_db() {
+        let mut app = test_app();
+        fs::create_dir_all(&app.config.data_dir).expect("create app data dir");
+        let workshop_path = temp_path("refresh-complete-workshop");
+        let mod_dir = workshop_path.join("123456");
+        fs::create_dir_all(&mod_dir).expect("create workshop mod dir");
+        fs::write(
+            mod_dir.join("meta.cpp"),
+            "name = \"Refreshed Mod\";\npublishedid = 123456;\ntimestamp = 7;\n",
+        )
+        .expect("write meta.cpp");
+        app.workshop_path = Some(workshop_path.clone());
+        app.mods_db = crate::mods::ModsDb {
+            sum: String::new(),
+            mods: Vec::new(),
+        };
+
+        app.complete_refresh_installed_mods(&[123456]);
+
+        assert_eq!(app.mods_db.mods.len(), 1);
+        assert_eq!(app.mods_db.mods[0].id, 123456);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Installed mods refreshed via Steam. The DayZ game itself updates through Steam.")
+        );
+
+        let saved = fs::read_to_string(&app.config.mods_db_path).expect("read saved mods db");
+        assert!(saved.contains("123456"));
+
+        let _ = fs::remove_dir_all(workshop_path);
+        let _ = fs::remove_file(&app.config.mods_db_path);
     }
 
     #[test]
