@@ -1,7 +1,7 @@
 use crate::server::Server;
 use anyhow::Result;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub const DAYZ_GAME_ID: &str = "221100";
 
@@ -141,6 +141,9 @@ pub fn launch_dayz(args: &[String]) -> Result<()> {
     let mut cmd = Command::new("steam");
     cmd.arg("-applaunch").arg(DAYZ_GAME_ID);
     cmd.args(args);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
 
     tracing::info!("Launching DayZ with args: {:?}", args);
 
@@ -225,8 +228,12 @@ mod tests {
     use crate::offline::sync::runtime_target_name;
     use crate::server::Server;
     use crate::server::types::ServerEndpoint;
+    use std::ffi::OsString;
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(prefix: &str) -> PathBuf {
@@ -262,6 +269,76 @@ mod tests {
             },
             mods: Vec::new(),
         }
+    }
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: Launch tests serialize environment mutation with ENV_LOCK.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self {
+                key,
+                value: previous,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.value {
+                // SAFETY: Launch tests serialize environment mutation with ENV_LOCK.
+                unsafe {
+                    std::env::set_var(self.key, value);
+                }
+            } else {
+                // SAFETY: Launch tests serialize environment mutation with ENV_LOCK.
+                unsafe {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn write_executable(path: &std::path::Path, content: &str) {
+        fs::write(path, content).expect("write file");
+        let mut perms = fs::metadata(path).expect("stat file").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("chmod file");
+    }
+
+    fn prepend_path(dir: &std::path::Path) -> EnvVarGuard {
+        let current = std::env::var_os("PATH").unwrap_or_default();
+        let mut combined = OsString::from(dir.as_os_str());
+        if !current.is_empty() {
+            combined.push(":");
+            combined.push(&current);
+        }
+        EnvVarGuard::set("PATH", &combined)
+    }
+
+    fn wait_for_file(path: &std::path::Path) {
+        for _ in 0..100 {
+            if path.exists() {
+                return;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("timed out waiting for {}", path.display());
     }
 
     #[test]
@@ -363,6 +440,38 @@ mod tests {
             runtime_target_name("DayZCommunityOfflineMode.Namalsk")
         )));
         assert!(args.contains(&"-mod=@123;@2289456201;@2289461232".to_string()));
+    }
+
+    #[test]
+    fn launch_dayz_detaches_stdio_from_the_calling_terminal() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("launch-detach-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        let args_file = temp_path("launch-detach-args");
+        let fds_file = temp_path("launch-detach-fds");
+        write_executable(
+            &bin_dir.join("steam"),
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_STEAM_ARGS\"\nfd0=$(readlink /proc/$$/fd/0)\nfd1=$(readlink /proc/$$/fd/1)\nfd2=$(readlink /proc/$$/fd/2)\nprintf '%s\\n%s\\n%s\\n' \"$fd0\" \"$fd1\" \"$fd2\" > \"$FAKE_STEAM_FDS\"\n",
+        );
+        let path_env = prepend_path(&bin_dir);
+        let _args_env = EnvVarGuard::set("FAKE_STEAM_ARGS", &args_file);
+        let _fds_env = EnvVarGuard::set("FAKE_STEAM_FDS", &fds_file);
+
+        launch_dayz(&["-connect=1.2.3.4".into()]).expect("launch dayz");
+
+        wait_for_file(&args_file);
+        wait_for_file(&fds_file);
+
+        let fd_targets = fs::read_to_string(&fds_file).expect("read fd targets");
+        assert_eq!(
+            fd_targets.lines().collect::<Vec<_>>(),
+            vec!["/dev/null", "/dev/null", "/dev/null"]
+        );
+
+        drop(path_env);
+        fs::remove_file(args_file).expect("remove args file");
+        fs::remove_file(fds_file).expect("remove fds file");
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
     }
 
     #[test]

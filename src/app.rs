@@ -658,7 +658,7 @@ impl App {
 
         let has_mods = !mod_ids.is_empty();
 
-        if has_mods && self.steam.is_some() && !self.asked_update_mods {
+        if has_mods && !self.asked_update_mods {
             self.asked_update_mods = true;
             let mut screen =
                 self.create_screen(ScreenId::Confirm(ConfirmAction::UpdateModsBeforeLaunch));
@@ -736,10 +736,16 @@ impl App {
 
         if !ids_to_check.is_empty() {
             let Some(steam) = self.steam.as_ref() else {
-                self.status_message = Some(format!(
-                    "Missing mods not installed locally: {}",
-                    format_mod_ids(&ids_to_check)
-                ));
+                self.status_message = Some(if self.update_mods_before_launch {
+                    "Steam client not available; start Steam before updating mods".into()
+                } else {
+                    format!(
+                        "Missing mods not installed locally: {}",
+                        format_mod_ids(&ids_to_check)
+                    )
+                });
+                self.asked_update_mods = false;
+                self.update_mods_before_launch = false;
                 return;
             };
 
@@ -1487,7 +1493,9 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().expect("lock env")
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     struct EnvVarGuard {
@@ -2033,6 +2041,7 @@ mod tests {
         app.workshop_path = Some(workshop_path.clone());
         app.prepare_known_server_launch(1);
         app.skip_running_check_once = true;
+        app.asked_update_mods = true;
 
         app.process_action(Action::LaunchGame);
 
@@ -2083,6 +2092,7 @@ mod tests {
         }
         app.set_launch_password(Some("secret".into()));
         app.skip_running_check_once = true;
+        app.asked_update_mods = true;
 
         app.process_action(Action::LaunchGame);
 
@@ -2182,6 +2192,7 @@ mod tests {
             offline_spawn_enabled: Some(true),
         });
         app.skip_running_check_once = true;
+        app.asked_update_mods = true;
 
         app.process_action(Action::LaunchGame);
 
@@ -2461,6 +2472,7 @@ mod tests {
             offline_spawn_enabled: Some(true),
         });
         app.skip_running_check_once = true;
+        app.asked_update_mods = true;
 
         app.process_action(Action::LaunchGame);
 
@@ -2596,6 +2608,81 @@ mod tests {
         assert!(app.running);
 
         drop(path_env);
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn launch_prompts_for_mod_update_even_when_steam_client_is_missing() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-mod-update-prompt-bin");
+        setup_launch_bin(&bin_dir, false);
+        let path_env = prepend_path(&bin_dir);
+        let (dayz_path, workshop_path) = prepare_launch_paths("app-mod-update-prompt");
+        let mut app = test_app();
+        app.servers = vec![sample_server_with_mods(false, &[123456789])];
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 123456789".into(),
+                id: 123456789,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.dayz_path = Some(dayz_path.clone());
+        app.workshop_path = Some(workshop_path.clone());
+        app.prepare_known_server_launch(0);
+        app.skip_running_check_once = true;
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(app.screen_stack.len(), 2);
+        assert!(app.running);
+        assert!(app.launch_prep.is_some());
+
+        drop(path_env);
+        fs::remove_dir_all(&dayz_path).expect("remove dayz path");
+        fs::remove_dir_all(&workshop_path).expect("remove workshop path");
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn launch_reports_unavailable_steam_when_forced_mod_update_was_requested() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-mod-update-missing-steam-bin");
+        setup_launch_bin(&bin_dir, false);
+        let path_env = prepend_path(&bin_dir);
+        let (dayz_path, workshop_path) = prepare_launch_paths("app-mod-update-missing-steam");
+        let mut app = test_app();
+        app.servers = vec![sample_server_with_mods(false, &[123456789])];
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 123456789".into(),
+                id: 123456789,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.dayz_path = Some(dayz_path.clone());
+        app.workshop_path = Some(workshop_path.clone());
+        app.prepare_known_server_launch(0);
+        app.skip_running_check_once = true;
+        app.asked_update_mods = true;
+        app.update_mods_before_launch = true;
+
+        app.process_action(Action::LaunchGame);
+
+        assert!(app.running);
+        assert!(app.launch_prep.is_some());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Steam client not available; start Steam before updating mods")
+        );
+
+        drop(path_env);
+        fs::remove_dir_all(&dayz_path).expect("remove dayz path");
+        fs::remove_dir_all(&workshop_path).expect("remove workshop path");
         fs::remove_dir_all(bin_dir).expect("remove bin dir");
     }
 
