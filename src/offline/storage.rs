@@ -34,7 +34,9 @@ pub fn save_offline_state(config: &Config, state: &OfflineState) -> Result<()> {
     }
 
     let json = serde_json::to_string_pretty(state).context("serialize offline state")?;
-    fs::write(path, json).context("write offline state")?;
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, json).context("write offline state temp file")?;
+    fs::rename(&tmp_path, &path).context("promote offline state temp file")?;
     Ok(())
 }
 
@@ -98,6 +100,33 @@ mod tests {
 
         assert_eq!(loaded, state);
         assert!(offline_state_path(&config).exists());
+    }
+
+    #[test]
+    fn save_offline_state_replaces_existing_state_atomically() {
+        let root = test_root("offline-state-atomic");
+        fs::create_dir_all(&root).expect("create temp root");
+        let config = test_config(&root);
+        let initial = OfflineState {
+            installed_tag: Some("0.4.0".into()),
+            latest_known_tag: None,
+            managed_missions: vec!["DayZCommunityOfflineMode.ChernarusPlus".into()],
+            last_check_ts: Some(1),
+        };
+        let updated = OfflineState {
+            installed_tag: Some("0.5.0".into()),
+            latest_known_tag: Some("0.5.0".into()),
+            managed_missions: vec!["DayZCommunityOfflineMode.Enoch".into()],
+            last_check_ts: Some(2),
+        };
+
+        save_offline_state(&config, &initial).expect("save initial state");
+        fs::write(offline_state_path(&config), "").expect("corrupt final state");
+
+        save_offline_state(&config, &updated).expect("save updated state");
+        let loaded = load_offline_state(&config).expect("load updated state");
+
+        assert_eq!(loaded, updated);
     }
 
     #[test]
