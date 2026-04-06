@@ -77,3 +77,59 @@ pub fn save_news_cache(path: &Path, articles: &[NewsArticle]) -> Result<()> {
     fs::write(path, json)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::thread::sleep;
+
+    fn temp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dayz-ctl-{prefix}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ))
+    }
+
+    fn sample_articles() -> Vec<NewsArticle> {
+        vec![NewsArticle {
+            title: "Status Report".into(),
+            slug: "status-report".into(),
+            category: Some(ArticleCategory {
+                slug: "dev-hub".into(),
+            }),
+        }]
+    }
+
+    #[test]
+    fn loads_fresh_news_cache() {
+        let path = temp_path("news-cache");
+        let articles = sample_articles();
+
+        save_news_cache(&path, &articles).expect("save news cache");
+        let loaded = load_cached_news(&path, 60).expect("load news cache");
+
+        assert!(loaded.is_some());
+        assert_eq!(loaded.expect("cache contents")[0].url(), articles[0].url());
+
+        fs::remove_file(path).expect("remove news cache");
+    }
+
+    #[test]
+    fn expires_news_cache_after_ttl() {
+        let path = temp_path("news-cache-expired");
+        let articles = sample_articles();
+
+        save_news_cache(&path, &articles).expect("save news cache");
+        sleep(Duration::from_millis(1100));
+
+        let loaded = load_cached_news(&path, 0).expect("load expired news cache");
+        assert!(loaded.is_none());
+
+        fs::remove_file(path).expect("remove expired news cache");
+    }
+}

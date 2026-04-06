@@ -259,4 +259,17 @@ mod tests {
         let args = profile.get_launch_args();
         assert!(args.iter().any(|arg| arg == "-profiles=/tmp/dayz-profile"));
     }
+
+    #[test]
+    fn history_dedupes_and_respects_limit() {
+        let mut profile = Profile::default();
+
+        profile.add_history("One", "1.1.1.1", 2302, 2);
+        profile.add_history("Two", "2.2.2.2", 2302, 2);
+        profile.add_history("One Again", "1.1.1.1", 2302, 2);
+
+        assert_eq!(profile.history.len(), 2);
+        assert_eq!(profile.history[0].ip, "1.1.1.1");
+        assert_eq!(profile.history[1].ip, "2.2.2.2");
+    }
 }

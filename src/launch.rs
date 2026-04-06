@@ -144,6 +144,20 @@ mod tests {
     use super::*;
     use crate::server::Server;
     use crate::server::types::ServerEndpoint;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dayz-ctl-{prefix}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ))
+    }
 
     fn sample_server() -> Server {
         Server {
@@ -189,5 +203,27 @@ mod tests {
         assert!(args.contains(&"-port=2402".to_string()));
         assert!(!args.iter().any(|arg| arg.starts_with("-mod=")));
         assert!(args.contains(&"-name=Survivor".to_string()));
+    }
+
+    #[test]
+    fn desktop_entry_round_trip() {
+        let applications_dir = temp_path("desktop-entry");
+        fs::create_dir_all(&applications_dir).expect("create applications dir");
+
+        create_desktop_entry(
+            &applications_dir,
+            "Test Server",
+            "1.2.3.4",
+            2302,
+            "/usr/bin/dayz-ctl",
+        )
+        .expect("create desktop entry");
+
+        assert!(desktop_entry_exists(&applications_dir, "1.2.3.4", 2302));
+
+        delete_desktop_entry(&applications_dir, "1.2.3.4", 2302).expect("delete desktop entry");
+        assert!(!desktop_entry_exists(&applications_dir, "1.2.3.4", 2302));
+
+        fs::remove_dir_all(&applications_dir).expect("remove applications dir");
     }
 }

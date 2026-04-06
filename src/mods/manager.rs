@@ -221,3 +221,60 @@ pub fn detect_steam_root() -> Option<PathBuf> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dayz-ctl-{prefix}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn scans_installed_mods_from_meta_files() {
+        let workshop_path = temp_path("mods-scan");
+        let mod_dir = workshop_path.join("123456");
+        fs::create_dir_all(&mod_dir).expect("create mod dir");
+        fs::write(
+            mod_dir.join("meta.cpp"),
+            "name = \"Test Mod\";\npublishedid = 123456;\ntimestamp = 42;\n",
+        )
+        .expect("write meta.cpp");
+        fs::write(mod_dir.join("file.txt"), "payload").expect("write payload");
+
+        let db = scan_installed_mods(&workshop_path).expect("scan installed mods");
+
+        assert_eq!(db.mods.len(), 1);
+        assert_eq!(db.mods[0].id, 123456);
+        assert_eq!(db.mods[0].name, "Test Mod");
+
+        fs::remove_dir_all(workshop_path).expect("remove workshop dir");
+    }
+
+    #[test]
+    fn creates_and_removes_mod_symlinks() {
+        let root = temp_path("mods-links");
+        let dayz_path = root.join("dayz");
+        let workshop_path = root.join("workshop");
+        fs::create_dir_all(dayz_path.as_path()).expect("create dayz path");
+        fs::create_dir_all(workshop_path.join("123456")).expect("create workshop mod path");
+
+        ensure_mod_symlinks(&dayz_path, &workshop_path, &[123456]).expect("create symlink");
+        assert!(dayz_path.join("@123456").exists());
+
+        let removed = remove_mod_symlinks(&dayz_path).expect("remove symlinks");
+        assert_eq!(removed, 1);
+        assert!(!dayz_path.join("@123456").exists());
+
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+}
