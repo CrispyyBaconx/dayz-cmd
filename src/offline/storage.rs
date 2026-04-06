@@ -45,21 +45,28 @@ pub fn mission_identity_key(
 ) -> Result<String> {
     match source {
         MissionSource::Managed => Ok(format!("managed:{mission}")),
-        MissionSource::Existing => source_path
-            .map(|path| format!("existing:{}", canonical_path_hash(path)))
-            .context("existing mission identity requires a source path"),
+        MissionSource::Existing => {
+            let source_path =
+                source_path.context("existing mission identity requires a source path")?;
+            Ok(format!("existing:{}", canonical_path_hash(source_path)?))
+        }
     }
 }
 
-fn canonical_path_hash(path: &Path) -> String {
-    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+fn canonical_path_hash(path: &Path) -> Result<String> {
+    let canonical = fs::canonicalize(path).with_context(|| {
+        format!(
+            "existing mission identity requires a source path: {}",
+            path.display()
+        )
+    })?;
     let normalized = canonical.to_string_lossy();
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in normalized.as_bytes() {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    format!("{hash:016x}")
+    Ok(format!("{hash:016x}"))
 }
 
 #[cfg(test)]
@@ -133,6 +140,18 @@ mod tests {
     fn existing_mission_identity_requires_a_real_source_path() {
         let err = mission_identity_key(MissionSource::Existing, "CommunityOfflineClient", None)
             .expect_err("missing source path");
+        assert!(err
+            .to_string()
+            .contains("existing mission identity requires a source path"));
+    }
+
+    #[test]
+    fn existing_mission_identity_requires_an_existing_path() {
+        let root = test_root("mission-missing");
+        let missing = root.join("DayZ/Missions/MissingMission");
+
+        let err = mission_identity_key(MissionSource::Existing, "MissingMission", Some(&missing))
+            .expect_err("missing path");
         assert!(err
             .to_string()
             .contains("existing mission identity requires a source path"));

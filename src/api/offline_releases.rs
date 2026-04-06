@@ -47,7 +47,8 @@ pub fn parse_latest_release(body: &str) -> Result<Option<ReleaseInfo>> {
         serde_json::from_str(body).context("parse DCOM release metadata")?;
     Ok(releases
         .into_iter()
-        .find(|release| !release.draft && !release.prerelease)
+        .filter(|release| !release.draft && !release.prerelease)
+        .max_by(|a, b| compare_versions(&a.tag_name, &b.tag_name))
         .map(|release| ReleaseInfo {
             tag: normalize_version(&release.tag_name),
             tarball_url: release.tarball_url,
@@ -56,6 +57,30 @@ pub fn parse_latest_release(body: &str) -> Result<Option<ReleaseInfo>> {
 
 fn normalize_version(version: &str) -> String {
     version.trim_start_matches('v').to_string()
+}
+
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    let left = parse_version(&normalize_version(left));
+    let right = parse_version(&normalize_version(right));
+    let max_len = left.len().max(right.len());
+
+    for index in 0..max_len {
+        let lhs = *left.get(index).unwrap_or(&0);
+        let rhs = *right.get(index).unwrap_or(&0);
+        match lhs.cmp(&rhs) {
+            std::cmp::Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+
+    std::cmp::Ordering::Equal
+}
+
+fn parse_version(version: &str) -> Vec<u64> {
+    version
+        .split('.')
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect()
 }
 
 #[cfg(test)]
@@ -97,6 +122,38 @@ mod tests {
             release.tarball_url,
             "https://example.test/stable-050.tar.gz"
         );
+    }
+
+    #[test]
+    fn selects_highest_stable_release_even_when_payload_is_not_latest_first() {
+        let json = r#"
+        [
+          {
+            "tag_name": "0.4.0",
+            "draft": false,
+            "prerelease": false,
+            "tarball_url": "https://example.test/0.4.0.tar.gz"
+          },
+          {
+            "tag_name": "0.6.0",
+            "draft": false,
+            "prerelease": false,
+            "tarball_url": "https://example.test/0.6.0.tar.gz"
+          },
+          {
+            "tag_name": "0.5.0",
+            "draft": false,
+            "prerelease": false,
+            "tarball_url": "https://example.test/0.5.0.tar.gz"
+          }
+        ]
+        "#;
+
+        let release = parse_latest_release(json)
+            .expect("parse releases")
+            .expect("stable release");
+        assert_eq!(release.tag, "0.6.0");
+        assert_eq!(release.tarball_url, "https://example.test/0.6.0.tar.gz");
     }
 
     #[test]
