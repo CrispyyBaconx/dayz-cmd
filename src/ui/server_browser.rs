@@ -20,6 +20,8 @@ pub struct ServerBrowserScreen {
     pub scroll_offset: u16,
     source: BrowseSource,
     matcher: SkimMatcherV2,
+    sort_column: SortColumn,
+    sort_desc: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +30,14 @@ pub enum BrowseSource {
     Filtered(Vec<usize>),
     Favorites,
     History,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SortColumn {
+    Name,
+    Players,
+    Map,
+    Mods,
 }
 
 impl ServerBrowserScreen {
@@ -40,6 +50,8 @@ impl ServerBrowserScreen {
             scroll_offset: 0,
             source,
             matcher: SkimMatcherV2::default(),
+            sort_column: SortColumn::Players,
+            sort_desc: true,
         }
     }
 
@@ -89,6 +101,13 @@ impl ServerBrowserScreen {
             self.filtered_indices = scored.into_iter().map(|(i, _)| i).collect();
         }
 
+        self.filtered_indices = sorted_indices(
+            &app.servers,
+            std::mem::take(&mut self.filtered_indices),
+            self.sort_column,
+            self.sort_desc,
+        );
+
         if let Some(sel) = self.table_state.selected() {
             if sel >= self.filtered_indices.len() {
                 self.table_state
@@ -135,6 +154,35 @@ impl Screen for ServerBrowserScreen {
             KeyCode::Esc | KeyCode::Char('q') => Action::PopScreen,
             KeyCode::Char('/') => {
                 self.search_active = true;
+                Action::None
+            }
+            KeyCode::Char('1') => {
+                self.sort_column = SortColumn::Name;
+                self.sort_desc = false;
+                self.apply_search(app);
+                Action::None
+            }
+            KeyCode::Char('2') => {
+                self.sort_column = SortColumn::Players;
+                self.sort_desc = true;
+                self.apply_search(app);
+                Action::None
+            }
+            KeyCode::Char('3') => {
+                self.sort_column = SortColumn::Map;
+                self.sort_desc = false;
+                self.apply_search(app);
+                Action::None
+            }
+            KeyCode::Char('4') => {
+                self.sort_column = SortColumn::Mods;
+                self.sort_desc = true;
+                self.apply_search(app);
+                Action::None
+            }
+            KeyCode::Char('s') => {
+                self.sort_desc = !self.sort_desc;
+                self.apply_search(app);
                 Action::None
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -237,14 +285,23 @@ impl ServerBrowserScreen {
                 format!("{} servers", self.filtered_indices.len()),
                 theme::DIM,
             ),
+            Span::raw("  "),
+            Span::styled(
+                format!(
+                    "Sort: {} {}",
+                    self.sort_column.label(),
+                    if self.sort_desc { "desc" } else { "asc" }
+                ),
+                theme::DIM,
+            ),
         ]);
         let search_bar = Paragraph::new(search_line).block(
             Block::default()
-                .borders(Borders::ALL)
-                .border_style(if self.search_active {
-                    theme::INFO
-                } else {
-                    theme::BORDER
+                    .borders(Borders::ALL)
+                    .border_style(if self.search_active {
+                        theme::INFO
+                    } else {
+                        theme::BORDER
                 })
                 .title(match &self.source {
                     BrowseSource::All => " All Servers ",
@@ -381,7 +438,7 @@ impl ServerBrowserScreen {
 
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "Enter: select  /: search  q: back",
+                "Enter: select  /: search  1-4: sort  s: toggle order  q: back",
                 theme::KEY_HINT,
             )));
 
@@ -411,5 +468,107 @@ fn truncate_str(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max - 1])
+    }
+}
+
+impl SortColumn {
+    fn label(self) -> &'static str {
+        match self {
+            SortColumn::Name => "name",
+            SortColumn::Players => "players",
+            SortColumn::Map => "map",
+            SortColumn::Mods => "mods",
+        }
+    }
+}
+
+fn sorted_indices(
+    servers: &[crate::server::Server],
+    mut indices: Vec<usize>,
+    sort_column: SortColumn,
+    sort_desc: bool,
+) -> Vec<usize> {
+    indices.sort_by(|left, right| {
+        let lhs = &servers[*left];
+        let rhs = &servers[*right];
+        let ordering = match sort_column {
+            SortColumn::Name => lhs.name.to_lowercase().cmp(&rhs.name.to_lowercase()),
+            SortColumn::Players => lhs
+                .players
+                .cmp(&rhs.players)
+                .then(lhs.max_players.cmp(&rhs.max_players)),
+            SortColumn::Map => lhs.map.to_lowercase().cmp(&rhs.map.to_lowercase()),
+            SortColumn::Mods => lhs.mods.len().cmp(&rhs.mods.len()),
+        };
+
+        if sort_desc {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
+    indices
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::types::{Server, ServerEndpoint, ServerMod};
+
+    fn make_server(name: &str, players: u32, map: &str, mod_count: usize) -> Server {
+        Server {
+            name: name.into(),
+            players,
+            max_players: 60,
+            time: "12:00".into(),
+            time_acceleration: Some(4.0),
+            map: map.into(),
+            password: false,
+            battleye: true,
+            vac: true,
+            first_person_only: false,
+            shard: "public".into(),
+            version: "1.0".into(),
+            environment: "w".into(),
+            game_port: 2302,
+            endpoint: ServerEndpoint {
+                ip: "1.2.3.4".into(),
+                port: 27016,
+            },
+            mods: (0..mod_count)
+                .map(|idx| ServerMod {
+                    name: format!("Mod {idx}"),
+                    steam_workshop_id: idx as u64,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn sorts_servers_by_player_count_descending() {
+        let servers = vec![
+            make_server("Alpha", 10, "chernarus", 1),
+            make_server("Bravo", 50, "namalsk", 3),
+            make_server("Charlie", 25, "deerisle", 0),
+        ];
+
+        let sorted = sorted_indices(&servers, vec![0, 1, 2], SortColumn::Players, true);
+        let names: Vec<&str> = sorted.iter().map(|&idx| servers[idx].name.as_str()).collect();
+
+        assert_eq!(names, vec!["Bravo", "Charlie", "Alpha"]);
+    }
+
+    #[test]
+    fn sorts_servers_by_name_ascending() {
+        let servers = vec![
+            make_server("Zulu", 10, "chernarus", 1),
+            make_server("Alpha", 50, "namalsk", 3),
+            make_server("Mike", 25, "deerisle", 0),
+        ];
+
+        let sorted = sorted_indices(&servers, vec![0, 1, 2], SortColumn::Name, false);
+        let names: Vec<&str> = sorted.iter().map(|&idx| servers[idx].name.as_str()).collect();
+
+        assert_eq!(names, vec!["Alpha", "Mike", "Zulu"]);
     }
 }
