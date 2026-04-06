@@ -203,6 +203,20 @@ impl App {
         }
     }
 
+    fn check_for_updates_manually(&mut self) {
+        match crate::api::releases::check_for_update(
+            &self.config.github_owner,
+            &self.config.github_repo,
+            crate::config::VERSION,
+            self.config.request_timeout,
+        ) {
+            Ok(availability) => self.apply_manual_update_availability(availability),
+            Err(error) => {
+                self.status_message = Some(format!("Update check failed: {error}"));
+            }
+        }
+    }
+
     pub fn apply_update_availability(&mut self, availability: UpdateAvailability) {
         match availability {
             UpdateAvailability::UpToDate => {
@@ -211,6 +225,20 @@ impl App {
             UpdateAvailability::Available(release) => {
                 self.available_update = Some(release);
                 self.process_action(Action::PushScreen(ScreenId::UpdatePrompt));
+            }
+        }
+    }
+
+    fn apply_manual_update_availability(&mut self, availability: UpdateAvailability) {
+        match availability {
+            UpdateAvailability::UpToDate => {
+                self.available_update = None;
+                self.status_message =
+                    Some(format!("Already up to date ({})", crate::config::VERSION));
+            }
+            UpdateAvailability::Available(release) => {
+                self.status_message = Some(format!("Update available: {}", release.tag));
+                self.apply_update_availability(UpdateAvailability::Available(release));
             }
         }
     }
@@ -267,6 +295,9 @@ impl App {
             }
             Action::RunSelfUpdate => {
                 self.run_self_update();
+            }
+            Action::CheckForUpdates => {
+                self.check_for_updates_manually();
             }
         }
     }
@@ -766,6 +797,35 @@ mod tests {
 
         assert!(app.available_update.is_none());
         assert_eq!(app.screen_stack.len(), 1);
+    }
+
+    #[test]
+    fn manual_update_check_sets_up_to_date_status() {
+        let mut app = test_app();
+
+        app.apply_manual_update_availability(UpdateAvailability::UpToDate);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Already up to date (0.3.0)")
+        );
+        assert!(app.available_update.is_none());
+    }
+
+    #[test]
+    fn manual_update_check_prompts_when_update_available() {
+        let mut app = test_app();
+
+        app.apply_manual_update_availability(UpdateAvailability::Available(ReleaseInfo {
+            tag: "0.4.0".into(),
+            installer_url: "https://example.test/installer.sh".into(),
+        }));
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Update available: 0.4.0")
+        );
+        assert_eq!(app.screen_stack.len(), 2);
     }
 
     #[test]

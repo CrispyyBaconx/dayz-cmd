@@ -24,6 +24,7 @@ pub enum Action {
     ReplaceScreen(ScreenId),
     LaunchGame,
     RunSelfUpdate,
+    CheckForUpdates,
 }
 
 #[derive(Debug, Clone, PartialEq)]

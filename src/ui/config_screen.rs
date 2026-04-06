@@ -27,6 +27,7 @@ enum ConfigItem {
     RemoveManagedMods,
     RemoveModLinks,
     RefreshServers,
+    CheckForUpdates,
     About,
 }
 
@@ -68,6 +69,7 @@ impl ConfigScreen {
         }
 
         items.push(ConfigItem::RefreshServers);
+        items.push(ConfigItem::CheckForUpdates);
         items.push(ConfigItem::About);
 
         self.items = items;
@@ -83,6 +85,7 @@ impl ConfigScreen {
             ConfigItem::RemoveManagedMods => "Remove Managed Mods",
             ConfigItem::RemoveModLinks => "Remove All Mod Links",
             ConfigItem::RefreshServers => "Refresh Server List",
+            ConfigItem::CheckForUpdates => "Check for Updates",
             ConfigItem::About => "About",
         }
     }
@@ -225,6 +228,7 @@ impl ConfigScreen {
                 app.refresh_servers();
                 Action::None
             }
+            ConfigItem::CheckForUpdates => Action::CheckForUpdates,
             ConfigItem::About => {
                 let about = format!(
                     "DayZ CTL v{}\nAPI: {}\nData: {}",
@@ -524,6 +528,17 @@ mod tests {
         assert_eq!(
             screen.execute_item(ConfigItem::RemoveModLinks, &mut app),
             Action::PushScreen(ScreenId::Confirm(ConfirmAction::RemoveModLinks))
+        );
+    }
+
+    #[test]
+    fn config_exposes_manual_update_check_action() {
+        let mut screen = ConfigScreen::new();
+        let mut app = test_app();
+
+        assert_eq!(
+            screen.execute_item(ConfigItem::CheckForUpdates, &mut app),
+            Action::CheckForUpdates
         );
     }
 }
