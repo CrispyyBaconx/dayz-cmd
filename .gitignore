@@ -2,5 +2,5 @@
 cheats.txt
 
 # Rust
-/target/
+target/*
 Cargo.lock
