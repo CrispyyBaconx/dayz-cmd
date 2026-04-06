@@ -102,11 +102,17 @@ pub fn apply_offline_spawn_setting(
         )
     })?;
 
-    let updated = if spawn_enabled {
-        content.replace("HIVE_ENABLED = false;", "HIVE_ENABLED = true;")
+    let (expected, replacement) = if spawn_enabled {
+        ("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
     } else {
-        content.replace("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
+        ("HIVE_ENABLED = false;", "HIVE_ENABLED = true;")
     };
+
+    if content.contains(expected) {
+        return Ok(());
+    }
+
+    let updated = content.replace(replacement, expected);
 
     if updated == content {
         bail!(
@@ -354,6 +360,32 @@ mod tests {
 
         let content = fs::read_to_string(&client_file).expect("read client file");
         assert!(content.contains("HIVE_ENABLED = true"));
+
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn offline_spawn_setting_succeeds_when_state_is_already_correct() {
+        let root = temp_path("offline-spawn-idempotent");
+        let client_file = root
+            .join("Missions")
+            .join("DayZCommunityOfflineMode.ChernarusPlus")
+            .join("core")
+            .join("CommunityOfflineClient.c");
+        fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
+        fs::write(&client_file, "bool HIVE_ENABLED = true;\n").expect("write client file");
+
+        apply_offline_spawn_setting(
+            &root,
+            "DayZCommunityOfflineMode.ChernarusPlus",
+            Some(true),
+        )
+        .expect("already-correct state should succeed");
+
+        assert_eq!(
+            fs::read_to_string(&client_file).expect("read client file"),
+            "bool HIVE_ENABLED = true;\n"
+        );
 
         fs::remove_dir_all(root).expect("remove temp root");
     }

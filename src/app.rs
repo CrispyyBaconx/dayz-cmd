@@ -32,6 +32,7 @@ struct PendingLaunch {
     all_mod_ids: Vec<u64>,
     pending_mod_ids: Vec<u64>,
     history_entry: Option<(String, String, u16)>,
+    offline_update: Option<(String, Option<bool>)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -507,6 +508,7 @@ impl App {
                         all_mod_ids: mod_ids,
                         pending_mod_ids,
                         history_entry,
+                        offline_update,
                     });
                     self.asked_update_mods = false;
                     self.update_mods_before_launch = false;
@@ -618,23 +620,61 @@ impl App {
             return;
         };
 
-        let Some(steam) = self.steam.as_ref() else {
-            self.status_message = Some("Waiting for Steam to resume workshop downloads".into());
-            self.pending_launch = Some(pending);
-            return;
-        };
+        let PendingLaunch {
+            args,
+            all_mod_ids,
+            pending_mod_ids,
+            history_entry,
+            offline_update,
+        } = pending;
 
-        let statuses = collect_pending_download_statuses(steam, &pending.pending_mod_ids);
-        if downloads_ready(&statuses) {
-            if let Err(e) = self.ensure_symlinks(&pending.all_mod_ids) {
-                self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
+        if !pending_mod_ids.is_empty() {
+            let Some(steam) = self.steam.as_ref() else {
+                self.status_message = Some("Waiting for Steam to resume workshop downloads".into());
+                self.pending_launch = Some(PendingLaunch {
+                    args,
+                    all_mod_ids,
+                    pending_mod_ids,
+                    history_entry,
+                    offline_update,
+                });
+                return;
+            };
+
+            let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
+            if !downloads_ready(&statuses) {
+                self.status_message = Some(download_status_message(&statuses));
+                self.pending_launch = Some(PendingLaunch {
+                    args,
+                    all_mod_ids,
+                    pending_mod_ids,
+                    history_entry,
+                    offline_update,
+                });
                 return;
             }
-            self.finish_launch(pending.args, pending.history_entry);
-        } else {
-            self.status_message = Some(download_status_message(&statuses));
-            self.pending_launch = Some(pending);
         }
+
+        if let Err(e) = self.ensure_symlinks(&all_mod_ids) {
+            self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
+            return;
+        }
+
+        if let Some((mission_id, spawn_enabled)) = offline_update {
+            let Some(dayz_path) = self.dayz_path.as_ref() else {
+                self.status_message = Some("Cannot launch offline: DayZ path not detected".into());
+                return;
+            };
+
+            if let Err(e) =
+                crate::launch::apply_offline_spawn_setting(dayz_path, &mission_id, spawn_enabled)
+            {
+                self.status_message = Some(format!("Failed to update offline spawn setting: {e}"));
+                return;
+            }
+        }
+
+        self.finish_launch(args, history_entry);
     }
 }
 
@@ -1183,6 +1223,56 @@ mod tests {
         drop(path_env);
         fs::remove_dir_all(&dayz_path).expect("remove dayz path");
         fs::remove_dir_all(&workshop_path).expect("remove workshop path");
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn offline_launch_resume_applies_spawn_toggle_before_final_handoff() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-offline-resume-bin");
+        setup_launch_bin(&bin_dir, false);
+        let path_env = prepend_path(&bin_dir);
+        let capture = temp_path("app-offline-resume-args");
+        let _capture_env = EnvVarGuard::set("FAKE_STEAM_ARGS", capture.as_os_str());
+        let dayz_path = temp_path("app-offline-resume-dayz");
+        let workshop_path = temp_path("app-offline-resume-workshop");
+        let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
+        let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
+        fs::create_dir_all(&mission_dir).expect("create offline mission dir");
+        let client_file = mission_dir.join("CommunityOfflineClient.c");
+        fs::write(&client_file, "bool HIVE_ENABLED = false;\n").expect("write offline mission file");
+        fs::create_dir_all(&workshop_path).expect("create workshop path");
+
+        let mut app = test_app();
+        app.dayz_path = Some(dayz_path.clone());
+        app.workshop_path = Some(workshop_path.clone());
+        app.pending_launch = Some(PendingLaunch {
+            args: crate::launch::build_offline_launch_args(
+                &mission_id,
+                &[1564026768],
+                "Survivor",
+                &[],
+            ),
+            all_mod_ids: vec![1564026768],
+            pending_mod_ids: Vec::new(),
+            history_entry: None,
+            offline_update: Some((mission_id.clone(), Some(true))),
+        });
+
+        app.tick();
+
+        let args = read_launch_args(&capture);
+        assert!(args.iter().any(|arg| arg == &format!("-mission=./Missions/{mission_id}")));
+        assert!(args.iter().any(|arg| arg == "-mod=@1564026768"));
+        assert_eq!(
+            fs::read_to_string(&client_file).expect("read mission file"),
+            "bool HIVE_ENABLED = true;\n"
+        );
+        assert!(app.pending_launch.is_none());
+
+        drop(path_env);
+        fs::remove_dir_all(dayz_path).expect("remove dayz path");
+        fs::remove_dir_all(workshop_path).expect("remove workshop path");
         fs::remove_dir_all(bin_dir).expect("remove bin dir");
     }
 
