@@ -27,22 +27,45 @@ pub fn set_hive_enabled(dayz_root: &Path, runtime_mission_name: &str, enabled: b
         )
     })?;
 
-    let (expected, replacement) = if enabled {
-        ("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
-    } else {
+    let (from, to) = if enabled {
         ("HIVE_ENABLED = false;", "HIVE_ENABLED = true;")
+    } else {
+        ("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
     };
 
-    if content.contains(expected) {
-        return Ok(());
+    let mut updated = String::with_capacity(content.len());
+    let mut found_assignment = false;
+    let mut changed = false;
+
+    for line in content.split_inclusive('\n') {
+        let line_body = line.strip_suffix('\n').unwrap_or(line);
+        let mut replaced_line = line_body.to_string();
+        let trimmed = line_body.trim_start();
+
+        if trimmed.starts_with("bool HIVE_ENABLED = ") || trimmed.starts_with("HIVE_ENABLED = ") {
+            found_assignment = true;
+            let candidate = line_body.replacen(from, to, 1);
+            if candidate != line_body {
+                replaced_line = candidate;
+                changed = true;
+            }
+        }
+
+        updated.push_str(&replaced_line);
+        if line.ends_with('\n') {
+            updated.push('\n');
+        }
     }
 
-    let updated = content.replace(replacement, expected);
-    if updated == content {
+    if !found_assignment {
         bail!(
             "offline mission spawn toggle marker not found in {}",
             client_file.display()
         );
+    }
+
+    if !changed {
+        return Ok(());
     }
 
     fs::write(&client_file, updated).with_context(|| {
@@ -137,6 +160,33 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&client_file).expect("read client file"),
             "bool HIVE_ENABLED = true;\n"
+        );
+    }
+
+    #[test]
+    fn toggles_only_the_assignment_line_when_comments_repeat_the_marker() {
+        let root = temp_root("offline-launch-hive-comment");
+        let client_file = runtime_client_file(
+            &root,
+            "dayz-cmd-offline-DayZCommunityOfflineMode.ChernarusPlus",
+        );
+        fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
+        fs::write(
+            &client_file,
+            "// HIVE_ENABLED = true; comment should remain unchanged\nbool HIVE_ENABLED = false;\n",
+        )
+        .expect("write client file");
+
+        set_hive_enabled(
+            &root,
+            "dayz-cmd-offline-DayZCommunityOfflineMode.ChernarusPlus",
+            true,
+        )
+        .expect("toggle hive");
+
+        assert_eq!(
+            fs::read_to_string(&client_file).expect("read client file"),
+            "// HIVE_ENABLED = true; comment should remain unchanged\nbool HIVE_ENABLED = true;\n"
         );
     }
 

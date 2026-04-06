@@ -11,6 +11,12 @@ pub enum RuntimeMissionSyncStatus {
     Synced { target_path: PathBuf },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum SnapshotEntry {
+    Directory,
+    File(Vec<u8>),
+}
+
 pub fn runtime_target_name(mission_name: &str) -> String {
     format!("dayz-cmd-offline-{mission_name}")
 }
@@ -58,7 +64,7 @@ pub fn sync_runtime_mission(
     Ok(RuntimeMissionSyncStatus::Synced { target_path })
 }
 
-fn snapshot_directory(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>> {
+fn snapshot_directory(root: &Path) -> Result<BTreeMap<PathBuf, SnapshotEntry>> {
     let mut snapshot = BTreeMap::new();
     if !root.exists() {
         return Ok(snapshot);
@@ -71,7 +77,7 @@ fn snapshot_directory(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>> {
 fn collect_snapshot(
     root: &Path,
     current: &Path,
-    snapshot: &mut BTreeMap<PathBuf, Vec<u8>>,
+    snapshot: &mut BTreeMap<PathBuf, SnapshotEntry>,
 ) -> Result<()> {
     for entry in fs::read_dir(current)
         .with_context(|| format!("read offline mission directory: {}", current.display()))?
@@ -84,12 +90,13 @@ fn collect_snapshot(
             .to_path_buf();
 
         if path.is_dir() {
+            snapshot.insert(relative.clone(), SnapshotEntry::Directory);
             collect_snapshot(root, &path, snapshot)?;
             continue;
         }
 
         if path.is_file() {
-            snapshot.insert(relative, normalized_file_bytes(&path)?);
+            snapshot.insert(relative, SnapshotEntry::File(normalized_file_bytes(&path)?));
         }
     }
 
@@ -239,6 +246,30 @@ mod tests {
                 .expect("read untouched target"),
             "HIVE_ENABLED = false;\n// user changed this\n"
         );
+    }
+
+    #[test]
+    fn requires_explicit_confirmation_when_directory_structure_differs_even_if_files_match() {
+        let root = temp_root("offline-sync-empty-dir");
+        let dayz_root = root.join("DayZ");
+        let source = managed_mission(&root, "DayZCommunityOfflineMode.ChernarusPlus");
+        let target = runtime_target_path(&dayz_root, "DayZCommunityOfflineMode.ChernarusPlus");
+
+        fs::create_dir_all(source.source_path.join("extras")).expect("create empty source dir");
+        fs::create_dir_all(target.join("core")).expect("create target dir");
+        fs::write(
+            target.join("core/CommunityOfflineClient.c"),
+            "HIVE_ENABLED = false;\n",
+        )
+        .expect("write target file");
+
+        let status = sync_runtime_mission(&dayz_root, &source, false).expect("sync status");
+        assert!(matches!(
+            status,
+            RuntimeMissionSyncStatus::ConfirmationRequired { .. }
+        ));
+
+        assert!(!target.join("extras").exists());
     }
 
     #[test]

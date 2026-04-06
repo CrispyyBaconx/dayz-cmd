@@ -15,8 +15,14 @@ use crate::ui::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LaunchTarget {
     KnownServer(usize),
-    DirectConnect { ip: String, port: u16 },
-    Offline { mission_id: String },
+    DirectConnect {
+        ip: String,
+        port: u16,
+    },
+    Offline {
+        mission_id: String,
+        runtime_name: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +38,7 @@ struct PendingLaunch {
     all_mod_ids: Vec<u64>,
     pending_mod_ids: Vec<u64>,
     history_entry: Option<(String, String, u16)>,
-    offline_update: Option<(String, Option<bool>)>,
+    offline_update: Option<(String, String, Option<bool>)>,
     kind: PendingDownloadKind,
 }
 
@@ -495,9 +501,14 @@ impl App {
         let extra_args = self.profile.get_launch_args();
 
         let offline_update = match &target {
-            LaunchTarget::Offline { mission_id } => {
-                Some((mission_id.clone(), offline_spawn_enabled))
-            }
+            LaunchTarget::Offline {
+                mission_id,
+                runtime_name,
+            } => Some((
+                mission_id.clone(),
+                runtime_name.clone(),
+                offline_spawn_enabled,
+            )),
             _ => None,
         };
 
@@ -534,7 +545,10 @@ impl App {
                 );
                 (args, history_entry)
             }
-            LaunchTarget::Offline { mission_id } => {
+            LaunchTarget::Offline {
+                mission_id,
+                runtime_name,
+            } => {
                 let Some(_dayz_path) = self.dayz_path.as_ref() else {
                     self.status_message =
                         Some("Cannot launch offline: DayZ path not detected".into());
@@ -543,6 +557,7 @@ impl App {
 
                 let args = crate::launch::build_offline_launch_args(
                     &mission_id,
+                    &runtime_name,
                     &mod_ids,
                     &player,
                     &extra_args,
@@ -605,7 +620,7 @@ impl App {
             return;
         }
 
-        if let Some((mission_id, spawn_enabled)) = offline_update {
+        if let Some((mission_id, runtime_name, spawn_enabled)) = offline_update {
             let Some(dayz_path) = self.dayz_path.as_ref() else {
                 self.status_message = Some("Cannot launch offline: DayZ path not detected".into());
                 self.asked_update_mods = false;
@@ -613,9 +628,12 @@ impl App {
                 return;
             };
 
-            if let Err(e) =
-                crate::launch::apply_offline_spawn_setting(dayz_path, &mission_id, spawn_enabled)
-            {
+            if let Err(e) = crate::launch::apply_offline_spawn_setting(
+                dayz_path,
+                &mission_id,
+                &runtime_name,
+                spawn_enabled,
+            ) {
                 self.status_message = Some(format!("Failed to update offline spawn setting: {e}"));
                 self.asked_update_mods = false;
                 self.update_mods_before_launch = false;
@@ -927,7 +945,8 @@ impl App {
                         return;
                     }
 
-                    if let Some((mission_id, spawn_enabled)) = pending.offline_update {
+                    if let Some((mission_id, runtime_name, spawn_enabled)) = pending.offline_update
+                    {
                         let Some(dayz_path) = self.dayz_path.as_ref() else {
                             self.status_message =
                                 Some("Cannot launch offline: DayZ path not detected".into());
@@ -937,6 +956,7 @@ impl App {
                         if let Err(e) = crate::launch::apply_offline_spawn_setting(
                             dayz_path,
                             &mission_id,
+                            &runtime_name,
                             spawn_enabled,
                         ) {
                             self.status_message =
@@ -1878,7 +1898,10 @@ mod tests {
         let workshop_path = temp_path("app-offline-workshop");
         let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
         let runtime_target = crate::offline::sync::runtime_target_name(&mission_id);
-        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
+        let mission_dir = dayz_path
+            .join("Missions")
+            .join(&runtime_target)
+            .join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         fs::write(
             mission_dir.join("CommunityOfflineClient.c"),
@@ -1902,6 +1925,7 @@ mod tests {
         app.launch_prep = Some(LaunchPrep {
             target: LaunchTarget::Offline {
                 mission_id: mission_id.clone(),
+                runtime_name: mission_id.clone(),
             },
             mod_ids: vec![1564026768],
             password: None,
@@ -1950,7 +1974,10 @@ mod tests {
         let workshop_path = temp_path("app-offline-resume-workshop");
         let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
         let runtime_target = crate::offline::sync::runtime_target_name(&mission_id);
-        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
+        let mission_dir = dayz_path
+            .join("Missions")
+            .join(&runtime_target)
+            .join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         let client_file = mission_dir.join("CommunityOfflineClient.c");
         fs::write(&client_file, "bool HIVE_ENABLED = false;\n")
@@ -1963,6 +1990,7 @@ mod tests {
         app.pending_launch = Some(PendingLaunch {
             args: crate::launch::build_offline_launch_args(
                 &mission_id,
+                &mission_id,
                 &[1564026768],
                 "Survivor",
                 &[],
@@ -1970,7 +1998,7 @@ mod tests {
             all_mod_ids: vec![1564026768],
             pending_mod_ids: Vec::new(),
             history_entry: None,
-            offline_update: Some((mission_id.clone(), Some(true))),
+            offline_update: Some((mission_id.clone(), mission_id.clone(), Some(true))),
             kind: PendingDownloadKind::Launch,
         });
 
@@ -2003,7 +2031,10 @@ mod tests {
         let dayz_path = temp_path("app-offline-order-dayz");
         let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
         let runtime_target = crate::offline::sync::runtime_target_name(&mission_id);
-        let mission_dir = dayz_path.join("Missions").join(&runtime_target).join("core");
+        let mission_dir = dayz_path
+            .join("Missions")
+            .join(&runtime_target)
+            .join("core");
         fs::create_dir_all(&mission_dir).expect("create offline mission dir");
         let client_file = mission_dir.join("CommunityOfflineClient.c");
         fs::write(&client_file, "bool HIVE_ENABLED = false;\n")
@@ -2014,6 +2045,7 @@ mod tests {
         app.launch_prep = Some(LaunchPrep {
             target: LaunchTarget::Offline {
                 mission_id: mission_id.clone(),
+                runtime_name: mission_id.clone(),
             },
             mod_ids: vec![1564026768],
             password: None,
@@ -2077,6 +2109,7 @@ mod tests {
         app.launch_prep = Some(LaunchPrep {
             target: LaunchTarget::Offline {
                 mission_id: "DayZCommunityOfflineMode.ChernarusPlus".into(),
+                runtime_name: "DayZCommunityOfflineMode.ChernarusPlus".into(),
             },
             mod_ids: Vec::new(),
             password: None,
