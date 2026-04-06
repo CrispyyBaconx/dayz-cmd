@@ -6,6 +6,7 @@ mod config;
 mod event;
 mod launch;
 mod mods;
+mod offline;
 mod profile;
 mod server;
 mod steam;
@@ -22,7 +23,11 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 #[derive(Parser)]
-#[command(name = "dayz-cmd", version, about = "DayZ server browser and launcher for Linux")]
+#[command(
+    name = "dayz-cmd",
+    version,
+    about = "DayZ server browser and launcher for Linux"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -122,10 +127,7 @@ fn run_direct_connect(
         .cloned();
 
     if let Some(server) = server {
-        let player = profile
-            .player
-            .clone()
-            .unwrap_or_else(|| "Survivor".into());
+        let player = profile.player.clone().unwrap_or_else(|| "Survivor".into());
         let mod_ids: Vec<u64> = server.mods.iter().map(|m| m.steam_workshop_id).collect();
         let extra_args = profile.get_launch_args();
 
@@ -145,10 +147,7 @@ fn run_direct_connect(
         println!("Connecting to {} ({}:{})...", server.name, ip, port);
         launch::launch_dayz(&args)?;
     } else {
-        let player = profile
-            .player
-            .clone()
-            .unwrap_or_else(|| "Survivor".into());
+        let player = profile.player.clone().unwrap_or_else(|| "Survivor".into());
         let extra_args = profile.get_launch_args();
 
         profile.add_history(&format!("{ip}:{port}"), ip, port, app.config.history_size);

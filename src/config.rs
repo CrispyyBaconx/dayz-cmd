@@ -87,6 +87,10 @@ impl Config {
         })
     }
 
+    pub fn offline_root(&self) -> PathBuf {
+        self.data_dir.join("offline")
+    }
+
     pub fn set_var(&mut self, key: &str, value: &str) -> Result<()> {
         let content = if self.path.exists() {
             fs::read_to_string(&self.path)?
@@ -155,7 +159,10 @@ mod tests {
         let config = Config::load().expect("load config");
 
         assert!(config.data_dir.ends_with("dayz-cmd"));
-        assert_eq!(config.path.file_name().and_then(|name| name.to_str()), Some("dayz-cmd.conf"));
+        assert_eq!(
+            config.path.file_name().and_then(|name| name.to_str()),
+            Some("dayz-cmd.conf")
+        );
 
         drop(xdg_env);
         drop(home_env);
@@ -177,7 +184,10 @@ mod tests {
             let previous = std::env::var_os(key);
             // SAFETY: tests serialize environment access with ENV_LOCK.
             unsafe { std::env::set_var(key, value) };
-            Self { key, value: previous }
+            Self {
+                key,
+                value: previous,
+            }
         }
     }
 

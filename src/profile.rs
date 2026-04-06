@@ -1,3 +1,4 @@
+use crate::offline::types::OfflineMissionPrefs;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -16,6 +17,8 @@ pub struct Profile {
     pub history: Vec<HistoryEntry>,
     #[serde(default)]
     pub options: BTreeMap<String, LaunchOption>,
+    #[serde(default)]
+    pub offline: BTreeMap<String, OfflineMissionPrefs>,
     #[serde(default = "default_version")]
     pub version: String,
 }
@@ -166,12 +169,7 @@ impl Default for Profile {
                 "Use all available cores",
             ),
             ("par", false, Some(""), "Parameters file"),
-            (
-                "world",
-                true,
-                Some("empty"),
-                "empty, ChernarusPlus",
-            ),
+            ("world", true, Some("empty"), "empty, ChernarusPlus"),
             ("profiles", false, Some(""), "Profiles path"),
             (
                 "noPause",
@@ -179,18 +177,8 @@ impl Default for Profile {
                 Some(""),
                 "-1 Default, 0 Graphics Only, 1 Graphics and sounds",
             ),
-            (
-                "maxMem",
-                false,
-                Some(""),
-                "Maximum RAM in megabytes",
-            ),
-            (
-                "maxVRAM",
-                false,
-                Some(""),
-                "Maximum VRAM in megabytes",
-            ),
+            ("maxMem", false, Some(""), "Maximum RAM in megabytes"),
+            ("maxVRAM", false, Some(""), "Maximum VRAM in megabytes"),
             (
                 "cpuCount",
                 false,
@@ -205,12 +193,7 @@ impl Default for Profile {
             ),
             ("noBenchmark", false, None, "Disable benchmarking"),
             ("malloc", false, Some(""), "Custom memory allocator"),
-            (
-                "scriptDebug",
-                false,
-                Some("false"),
-                "Debug scripts",
-            ),
+            ("scriptDebug", false, Some("false"), "Debug scripts"),
         ];
 
         for (key, enabled, value, desc) in opts {
@@ -231,6 +214,7 @@ impl Default for Profile {
             favorites: Vec::new(),
             history: Vec::new(),
             options,
+            offline: BTreeMap::new(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
@@ -244,16 +228,24 @@ mod tests {
     fn toggles_launch_option_enabled_state() {
         let mut profile = Profile::default();
 
-        assert_eq!(profile.options.get("window").map(|opt| opt.enabled), Some(false));
+        assert_eq!(
+            profile.options.get("window").map(|opt| opt.enabled),
+            Some(false)
+        );
         assert!(profile.toggle_option("window").is_some());
-        assert_eq!(profile.options.get("window").map(|opt| opt.enabled), Some(true));
+        assert_eq!(
+            profile.options.get("window").map(|opt| opt.enabled),
+            Some(true)
+        );
     }
 
     #[test]
     fn updates_launch_option_value_and_launch_args() {
         let mut profile = Profile::default();
 
-        assert!(profile.set_option_value("profiles", "/tmp/dayz-profile").is_some());
+        assert!(profile
+            .set_option_value("profiles", "/tmp/dayz-profile")
+            .is_some());
         assert!(profile.toggle_option("profiles").is_some());
 
         let args = profile.get_launch_args();
@@ -271,5 +263,29 @@ mod tests {
         assert_eq!(profile.history.len(), 2);
         assert_eq!(profile.history[0].ip, "1.1.1.1");
         assert_eq!(profile.history[1].ip, "2.2.2.2");
+    }
+
+    #[test]
+    fn serializes_remembered_offline_settings() {
+        let mut profile = Profile::default();
+        profile.offline.insert(
+            "managed:DayZCommunityOfflineMode.ChernarusPlus".into(),
+            OfflineMissionPrefs {
+                mod_ids: vec![1564026768],
+                spawn_enabled: true,
+            },
+        );
+
+        let json = serde_json::to_string(&profile).expect("serialize profile");
+        let restored: Profile = serde_json::from_str(&json).expect("deserialize profile");
+
+        assert_eq!(
+            restored
+                .offline
+                .get("managed:DayZCommunityOfflineMode.ChernarusPlus"),
+            profile
+                .offline
+                .get("managed:DayZCommunityOfflineMode.ChernarusPlus")
+        );
     }
 }
