@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
-use super::{Action, AppLaunchPrep as LaunchPrep, AppLaunchTarget as LaunchTarget, Screen, theme};
+use super::{Action, Screen, theme};
 use crate::app::App;
 
 pub struct ServerDetailScreen {
@@ -136,17 +136,7 @@ impl ServerDetailScreen {
 
         match action {
             DetailAction::Play => {
-                let mod_ids = server
-                    .mods
-                    .iter()
-                    .map(|m| m.steam_workshop_id)
-                    .collect();
-                app.launch_prep = Some(LaunchPrep {
-                    target: LaunchTarget::KnownServer(self.server_index),
-                    mod_ids,
-                    password: None,
-                    offline_spawn_enabled: None,
-                });
+                app.prepare_known_server_launch(self.server_index);
                 Action::LaunchGame
             }
             DetailAction::AddFavorite => {

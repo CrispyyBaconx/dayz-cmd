@@ -135,10 +135,16 @@ impl ConfirmScreen {
     fn confirm(&self, app: &mut App) -> Action {
         match &self.action {
             ConfirmAction::Quit => Action::Quit,
-            ConfirmAction::KillDayZ => {
-                let _ = crate::launch::kill_dayz();
-                Action::PopScreen
-            }
+            ConfirmAction::KillDayZ => match crate::launch::kill_dayz() {
+                Ok(()) => {
+                    app.skip_running_check_once = true;
+                    Action::LaunchGame
+                }
+                Err(error) => {
+                    app.status_message = Some(format!("Error: {error}"));
+                    Action::PopScreen
+                }
+            },
             ConfirmAction::RemoveManagedMods => {
                 if let (Some(wp), Some(dp)) = (&app.workshop_path, &app.dayz_path) {
                     match crate::mods::remove_managed_mods(wp, dp) {

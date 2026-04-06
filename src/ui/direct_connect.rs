@@ -3,7 +3,7 @@ use ratatui::Frame;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-use super::{Action, AppLaunchPrep as LaunchPrep, AppLaunchTarget as LaunchTarget, Screen, theme};
+use super::{Action, Screen, theme};
 use crate::app::App;
 
 pub struct DirectConnectScreen {
@@ -137,17 +137,7 @@ impl Screen for DirectConnectScreen {
                     .iter()
                     .position(|s| s.endpoint.ip == self.ip && s.game_port == port)
                 {
-                    let mod_ids = app.servers[idx]
-                        .mods
-                        .iter()
-                        .map(|m| m.steam_workshop_id)
-                        .collect();
-                    app.launch_prep = Some(LaunchPrep {
-                        target: LaunchTarget::KnownServer(idx),
-                        mod_ids,
-                        password: None,
-                        offline_spawn_enabled: None,
-                    });
+                    app.prepare_known_server_launch(idx);
                     return Action::LaunchGame;
                 }
 
@@ -156,29 +146,11 @@ impl Screen for DirectConnectScreen {
                     .iter()
                     .position(|s| s.endpoint.ip == self.ip && s.endpoint.port == port)
                 {
-                    let mod_ids = app.servers[idx]
-                        .mods
-                        .iter()
-                        .map(|m| m.steam_workshop_id)
-                        .collect();
-                    app.launch_prep = Some(LaunchPrep {
-                        target: LaunchTarget::KnownServer(idx),
-                        mod_ids,
-                        password: None,
-                        offline_spawn_enabled: None,
-                    });
+                    app.prepare_known_server_launch(idx);
                     return Action::LaunchGame;
                 }
 
-                app.launch_prep = Some(LaunchPrep {
-                    target: LaunchTarget::DirectConnect {
-                        ip: self.ip.clone(),
-                        port,
-                    },
-                    mod_ids: Vec::new(),
-                    password: None,
-                    offline_spawn_enabled: None,
-                });
+                app.prepare_direct_connect_launch(self.ip.clone(), port);
                 Action::LaunchGame
             }
             _ => Action::None,

@@ -58,6 +58,7 @@ pub struct App {
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pub available_update: Option<ReleaseInfo>,
     pub update_mods_before_launch: bool,
+    pub(crate) skip_running_check_once: bool,
     pending_launch: Option<PendingLaunch>,
     asked_update_mods: bool,
     screen_stack: Vec<Box<dyn Screen>>,
@@ -85,9 +86,44 @@ impl App {
             server_runtime: HashMap::new(),
             available_update: None,
             update_mods_before_launch: false,
+            skip_running_check_once: false,
             pending_launch: None,
             asked_update_mods: false,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
+        }
+    }
+
+    fn store_launch_prep(&mut self, prep: LaunchPrep) {
+        self.launch_prep = Some(prep);
+    }
+
+    pub(crate) fn prepare_known_server_launch(&mut self, server_index: usize) {
+        let Some(server) = self.servers.get(server_index) else {
+            self.status_message = Some(format!(
+                "Launch target server {server_index} is unavailable"
+            ));
+            return;
+        };
+        self.store_launch_prep(LaunchPrep {
+            target: LaunchTarget::KnownServer(server_index),
+            mod_ids: server.mods.iter().map(|m| m.steam_workshop_id).collect(),
+            password: None,
+            offline_spawn_enabled: None,
+        });
+    }
+
+    pub(crate) fn prepare_direct_connect_launch(&mut self, ip: String, port: u16) {
+        self.store_launch_prep(LaunchPrep {
+            target: LaunchTarget::DirectConnect { ip, port },
+            mod_ids: Vec::new(),
+            password: None,
+            offline_spawn_enabled: None,
+        });
+    }
+
+    pub(crate) fn set_launch_password(&mut self, password: Option<String>) {
+        if let Some(prep) = self.launch_prep.as_mut() {
+            prep.password = password;
         }
     }
 
@@ -277,6 +313,9 @@ impl App {
             Action::RunSelfUpdate => {
                 self.run_self_update();
             }
+            Action::CheckForUpdates => {
+                self.check_for_updates_manually();
+            }
         }
     }
 
@@ -295,6 +334,7 @@ impl App {
             ScreenId::Config => Box::new(config_screen::ConfigScreen::new()),
             ScreenId::News => Box::new(news::NewsScreen::new()),
             ScreenId::DirectConnect => Box::new(direct_connect::DirectConnectScreen::new()),
+            ScreenId::PasswordPrompt => Box::new(password_prompt::PasswordPromptScreen::new()),
             ScreenId::FilterSelect => Box::new(filter::FilterSelectScreen::new(self)),
             ScreenId::UpdatePrompt => Box::new(update_prompt::UpdatePromptScreen::new()),
             ScreenId::Confirm(action) => Box::new(popup::ConfirmScreen::new(action)),
@@ -302,12 +342,41 @@ impl App {
     }
 
     fn do_launch(&mut self) {
-        let Some(prep) = self.launch_prep.as_ref() else {
+        if !self.skip_running_check_once && crate::launch::is_dayz_running() {
+            let mut screen = self.create_screen(ScreenId::Confirm(ConfirmAction::KillDayZ));
+            screen.on_enter(self);
+            self.screen_stack.push(screen);
+            return;
+        }
+        self.skip_running_check_once = false;
+
+        let Some(prep) = self.launch_prep.clone() else {
             self.status_message = Some("No launch target selected".into());
             return;
         };
 
-        let has_mods = !prep.mod_ids.is_empty();
+        let LaunchPrep {
+            target,
+            mod_ids,
+            password,
+            offline_spawn_enabled,
+        } = prep;
+
+        if let LaunchTarget::KnownServer(idx) = &target {
+            let Some(server) = self.servers.get(*idx) else {
+                self.status_message = Some(format!("Launch target server {idx} is unavailable"));
+                return;
+            };
+
+            if server.password && password.is_none() {
+                let mut screen = self.create_screen(ScreenId::PasswordPrompt);
+                screen.on_enter(self);
+                self.screen_stack.push(screen);
+                return;
+            }
+        }
+
+        let has_mods = !mod_ids.is_empty();
 
         if has_mods && self.steam.is_some() && !self.asked_update_mods {
             self.asked_update_mods = true;
@@ -318,10 +387,6 @@ impl App {
             return;
         }
 
-        let Some(mut prep) = self.launch_prep.take() else {
-            self.status_message = Some("No launch target selected".into());
-            return;
-        };
         let player = self
             .profile
             .player
@@ -329,16 +394,11 @@ impl App {
             .unwrap_or_else(|| "Survivor".into());
         let extra_args = self.profile.get_launch_args();
 
-        let password = prep.password.take();
-        let offline_spawn_enabled = prep.offline_spawn_enabled.take();
-        let mod_ids = prep.mod_ids.clone();
-
-        let (args, history_entry) = match prep.target {
+        let (args, history_entry) = match target {
             LaunchTarget::KnownServer(idx) => {
                 let Some(server) = self.servers.get(idx) else {
-                    self.status_message = Some(format!("Launch target server {idx} is unavailable"));
-                    self.asked_update_mods = false;
-                    self.update_mods_before_launch = false;
+                    self.status_message =
+                        Some(format!("Launch target server {idx} is unavailable"));
                     return;
                 };
                 let history_entry = Some((
@@ -371,8 +431,6 @@ impl App {
                 let Some(dayz_path) = self.dayz_path.as_ref() else {
                     self.status_message =
                         Some("Cannot launch offline: DayZ path not detected".into());
-                    self.asked_update_mods = false;
-                    self.update_mods_before_launch = false;
                     return;
                 };
 
@@ -381,9 +439,8 @@ impl App {
                     &mission_id,
                     offline_spawn_enabled,
                 ) {
-                    self.status_message = Some(format!(
-                        "Failed to update offline spawn setting: {e}"
-                    ));
+                    self.status_message =
+                        Some(format!("Failed to update offline spawn setting: {e}"));
                     self.asked_update_mods = false;
                     self.update_mods_before_launch = false;
                     return;
@@ -402,7 +459,6 @@ impl App {
         if !mod_ids.is_empty() && (self.dayz_path.is_none() || self.workshop_path.is_none()) {
             self.status_message =
                 Some("Cannot manage server mods: Steam library path not detected".into());
-            self.asked_update_mods = false;
             return;
         }
 
@@ -418,7 +474,6 @@ impl App {
                     "Missing mods not installed locally: {}",
                     format_mod_ids(&ids_to_check)
                 ));
-                self.asked_update_mods = false;
                 return;
             };
 
@@ -439,7 +494,6 @@ impl App {
                 Ok(_) => {}
                 Err(e) => {
                     self.status_message = Some(format!("Failed to queue workshop downloads: {e}"));
-                    self.asked_update_mods = false;
                     self.update_mods_before_launch = false;
                     return;
                 }
@@ -448,7 +502,6 @@ impl App {
 
         if let Err(e) = self.ensure_symlinks(&mod_ids) {
             self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
-            self.asked_update_mods = false;
             self.update_mods_before_launch = false;
             return;
         }
@@ -461,6 +514,7 @@ impl App {
     fn finish_launch(&mut self, args: Vec<String>, history_entry: Option<(String, String, u16)>) {
         match crate::launch::launch_dayz(&args) {
             Ok(()) => {
+                self.launch_prep = None;
                 if let Some((name, ip, port)) = history_entry {
                     self.profile
                         .add_history(&name, &ip, port, self.config.history_size);
@@ -471,6 +525,30 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to launch: {e}"));
+            }
+        }
+    }
+
+    fn check_for_updates_manually(&mut self) {
+        match crate::api::releases::check_for_update(
+            &self.config.github_owner,
+            &self.config.github_repo,
+            crate::config::VERSION,
+            self.config.request_timeout,
+        ) {
+            Ok(availability) => match availability {
+                UpdateAvailability::UpToDate => {
+                    self.available_update = None;
+                    self.status_message =
+                        Some(format!("Already up to date ({})", crate::config::VERSION));
+                }
+                UpdateAvailability::Available(release) => {
+                    self.status_message = Some(format!("Update available: {}", release.tag));
+                    self.apply_update_availability(UpdateAvailability::Available(release));
+                }
+            },
+            Err(error) => {
+                self.status_message = Some(format!("Update check failed: {error}"));
             }
         }
     }
@@ -605,12 +683,13 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::profile::Profile;
+    use crate::server::Server;
     use crate::server::types::ServerEndpoint;
     use crate::steam::ItemState;
-    use crate::server::Server;
     use std::ffi::OsString;
     use std::fs;
     use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::sync::{Mutex, OnceLock};
 
@@ -640,6 +719,14 @@ mod tests {
             },
             Profile::default(),
         )
+    }
+
+    fn temp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dayz-cmd-{prefix}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().expect("timestamp")
+        ))
     }
 
     fn sample_server(name: &str, ip: &str, game_port: u16, mods: &[u64]) -> Server {
@@ -679,6 +766,45 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    struct PathGuard {
+        old_path: Option<OsString>,
+    }
+
+    impl PathGuard {
+        fn prepend(bin_dir: &PathBuf) -> Self {
+            let old_path = std::env::var_os("PATH");
+            let new_path = match &old_path {
+                Some(existing) => format!("{}:{}", bin_dir.display(), existing.to_string_lossy()),
+                None => bin_dir.display().to_string(),
+            };
+            unsafe {
+                std::env::set_var("PATH", new_path);
+            }
+            Self { old_path }
+        }
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(old_path) = &self.old_path {
+                    std::env::set_var("PATH", old_path);
+                } else {
+                    std::env::remove_var("PATH");
+                }
+            }
+        }
+    }
+
+    fn write_executable(path: &PathBuf, script: &str) {
+        fs::write(path, script).expect("write executable script");
+        let mut perms = fs::metadata(path)
+            .expect("stat executable script")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("chmod executable script");
     }
 
     struct FakeSteam {
@@ -864,6 +990,10 @@ mod tests {
     #[test]
     fn known_server_launch_reads_target_from_shared_launch_prep() {
         let _guard = test_guard();
+        let bin_dir = temp_path("known-server-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
         let fake_steam = FakeSteam::install();
         let mut app = test_app();
         app.servers = vec![
@@ -897,11 +1027,17 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "-connect=10.0.0.2"));
         assert!(args.iter().any(|arg| arg == "-port=2402"));
         assert!(args.iter().any(|arg| arg == "-mod=@123456789"));
+
+        let _ = fs::remove_dir_all(bin_dir);
     }
 
     #[test]
     fn direct_connect_launch_reads_ip_port_mods_and_password_from_shared_launch_prep() {
         let _guard = test_guard();
+        let bin_dir = temp_path("direct-connect-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
         let fake_steam = FakeSteam::install();
         let mut app = test_app();
         app.mods_db = crate::mods::ModsDb {
@@ -943,11 +1079,17 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "-port=2402"));
         assert!(args.iter().any(|arg| arg == "-mod=@111;@222"));
         assert!(args.iter().any(|arg| arg == "-password=secret"));
+
+        let _ = fs::remove_dir_all(bin_dir);
     }
 
     #[test]
     fn launch_consumes_one_shot_password_and_prep_state_after_building_args() {
         let _guard = test_guard();
+        let bin_dir = temp_path("consume-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
         let fake_steam = FakeSteam::install();
         let mut app = test_app();
         app.dayz_path = Some(std::env::temp_dir().join("dayz-cmd-dayz-path-consume"));
@@ -967,23 +1109,180 @@ mod tests {
 
         app.do_launch();
 
-        assert!(fake_steam
-            .launched_args()
-            .iter()
-            .any(|arg| arg == "-password=one-shot"));
+        assert!(
+            fake_steam
+                .launched_args()
+                .iter()
+                .any(|arg| arg == "-password=one-shot")
+        );
         assert!(app.launch_prep.is_none());
+
+        let _ = fs::remove_dir_all(bin_dir);
+    }
+
+    #[test]
+    fn offline_launch_reads_mission_mods_and_spawn_flag_from_shared_launch_prep() {
+        let _guard = test_guard();
+        let bin_dir = temp_path("offline-launch-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
+        let fake_steam = FakeSteam::install();
+        let mut app = test_app();
+        let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
+        let dayz_path = temp_path("offline-dayz-path");
+        let workshop_path = temp_path("offline-workshop-path");
+        let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
+        fs::create_dir_all(&mission_dir).expect("create offline mission dir");
+        fs::write(
+            mission_dir.join("CommunityOfflineClient.c"),
+            "bool HIVE_ENABLED = false;\n",
+        )
+        .expect("write offline mission file");
+        fs::create_dir_all(&workshop_path).expect("create workshop path");
+
+        app.dayz_path = Some(dayz_path.clone());
+        app.workshop_path = Some(workshop_path.clone());
+        app.mods_db = crate::mods::ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 1564026768".into(),
+                id: 1564026768,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::Offline {
+                mission_id: mission_id.clone(),
+            },
+            mod_ids: vec![1564026768],
+            password: None,
+            offline_spawn_enabled: Some(true),
+        });
+
+        app.do_launch();
+
+        let args = fake_steam.launched_args();
+        assert!(
+            args.iter()
+                .any(|arg| arg == &format!("-mission=./Missions/{mission_id}"))
+        );
+        assert!(args.iter().any(|arg| arg == "-mod=@1564026768"));
+        assert!(args.iter().any(|arg| arg == "-filePatching"));
+        assert!(args.iter().any(|arg| arg == "-doLogs"));
+        assert!(args.iter().any(|arg| arg == "-scriptDebug=true"));
+        assert!(app.launch_prep.is_none());
+
+        let content = fs::read_to_string(
+            dayz_path
+                .join("Missions")
+                .join(&mission_id)
+                .join("core")
+                .join("CommunityOfflineClient.c"),
+        )
+        .expect("read toggled offline mission");
+        assert!(content.contains("HIVE_ENABLED = true"));
+
+        let _ = fs::remove_dir_all(dayz_path);
+        let _ = fs::remove_dir_all(workshop_path);
+        let _ = fs::remove_dir_all(bin_dir);
     }
 
     #[test]
     fn launch_game_requires_launch_prep() {
         let _guard = test_guard();
+        let bin_dir = temp_path("no-prep-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
         let fake_steam = FakeSteam::install();
         let mut app = test_app();
 
         app.process_action(Action::LaunchGame);
 
-        assert_eq!(app.status_message.as_deref(), Some("No launch target selected"));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No launch target selected")
+        );
         assert!(!fake_steam.was_launched());
         assert!(app.launch_prep.is_none());
+
+        let _ = fs::remove_dir_all(bin_dir);
+    }
+
+    #[test]
+    fn offline_launch_preserves_prep_when_spawn_toggle_fails() {
+        let _guard = test_guard();
+        let bin_dir = temp_path("offline-launch-failure-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
+        let mut app = test_app();
+        let dayz_path = temp_path("offline-launch-failure");
+        fs::create_dir_all(&dayz_path).expect("create dayz path");
+        app.dayz_path = Some(dayz_path.clone());
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::Offline {
+                mission_id: "DayZCommunityOfflineMode.ChernarusPlus".into(),
+            },
+            mod_ids: Vec::new(),
+            password: None,
+            offline_spawn_enabled: Some(true),
+        });
+
+        app.do_launch();
+
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("Failed to update offline spawn setting:")
+        );
+        assert!(app.launch_prep.is_some());
+
+        let _ = fs::remove_dir_all(dayz_path);
+        let _ = fs::remove_dir_all(bin_dir);
+    }
+
+    #[test]
+    fn launch_prompts_to_kill_existing_dayz_process() {
+        let _guard = test_guard();
+        let bin_dir = temp_path("app-bin");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 0\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
+
+        let mut app = test_app();
+        app.prepare_direct_connect_launch("1.2.3.4".into(), 2302);
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(app.screen_stack.len(), 2);
+        assert!(app.running);
+
+        let _ = fs::remove_dir_all(bin_dir);
+    }
+
+    #[test]
+    fn launch_prompts_for_password_on_protected_server() {
+        let _guard = test_guard();
+        let bin_dir = temp_path("app-bin-password");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pgrep"), "#!/bin/sh\nexit 1\n");
+        let _path_guard = PathGuard::prepend(&bin_dir);
+
+        let mut app = test_app();
+        app.servers
+            .push(sample_server("Protected Server", "1.2.3.4", 2302, &[]));
+        app.servers[0].password = true;
+        app.prepare_known_server_launch(0);
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(app.screen_stack.len(), 2);
+        assert!(app.running);
+
+        let _ = fs::remove_dir_all(bin_dir);
     }
 }

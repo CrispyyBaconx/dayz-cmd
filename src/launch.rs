@@ -326,7 +326,11 @@ mod tests {
         assert!(args.contains(&"-nolauncher".to_string()));
         assert!(args.contains(&"-name=Survivor".to_string()));
         assert!(args.contains(&"-filePatching".to_string()));
-        assert!(args.contains(&"-mission=./Missions/DayZCommunityOfflineMode.ChernarusPlus".to_string()));
+        assert!(
+            args.contains(
+                &"-mission=./Missions/DayZCommunityOfflineMode.ChernarusPlus".to_string()
+            )
+        );
         assert!(args.contains(&"-mod=@111;@222".to_string()));
         assert!(args.contains(&"-doLogs".to_string()));
         assert!(args.contains(&"-scriptDebug=true".to_string()));
@@ -336,16 +340,13 @@ mod tests {
     #[test]
     fn toggles_hive_enabled_in_runtime_mission_copy() {
         let root = temp_path("offline-spawn");
-        let client_file = root.join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c");
+        let client_file = root
+            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c");
         fs::create_dir_all(client_file.parent().expect("parent dir")).expect("create mission dir");
         fs::write(&client_file, "bool HIVE_ENABLED = false;\n").expect("seed mission file");
 
-        apply_offline_spawn_setting(
-            &root,
-            "DayZCommunityOfflineMode.ChernarusPlus",
-            Some(true),
-        )
-        .expect("toggle spawn");
+        apply_offline_spawn_setting(&root, "DayZCommunityOfflineMode.ChernarusPlus", Some(true))
+            .expect("toggle spawn");
 
         let updated = fs::read_to_string(&client_file).expect("read updated mission file");
         assert!(updated.contains("HIVE_ENABLED = true"));

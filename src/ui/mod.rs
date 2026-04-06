@@ -3,6 +3,7 @@ pub mod direct_connect;
 pub mod filter;
 pub mod main_menu;
 pub mod news;
+pub mod password_prompt;
 pub mod popup;
 pub mod server_browser;
 pub mod server_detail;
@@ -23,6 +24,7 @@ pub enum Action {
     ReplaceScreen(ScreenId),
     LaunchGame,
     RunSelfUpdate,
+    CheckForUpdates,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +38,7 @@ pub enum ScreenId {
     Config,
     News,
     DirectConnect,
+    PasswordPrompt,
     FilterSelect,
     UpdatePrompt,
     Confirm(ConfirmAction),
