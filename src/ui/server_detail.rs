@@ -80,6 +80,10 @@ impl ServerDetailScreen {
 
 impl Screen for ServerDetailScreen {
     fn on_enter(&mut self, app: &mut App) {
+        if let Some(server) = app.servers.get(self.server_index) {
+            let ip = server.endpoint.ip.clone();
+            app.ensure_server_runtime_info(&ip);
+        }
         self.build_items(app);
     }
 
@@ -209,6 +213,16 @@ impl ServerDetailScreen {
             } else {
                 format!("{} mods", s.mods.len())
             };
+            let ping_str = app
+                .server_runtime
+                .get(&s.endpoint.ip)
+                .and_then(|info| info.ping_ms.map(|value| format!("{value:.1} ms")))
+                .unwrap_or_else(|| "N/A".into());
+            let country_str = app
+                .server_runtime
+                .get(&s.endpoint.ip)
+                .and_then(|info| info.country.clone())
+                .unwrap_or_else(|| "Unknown".into());
 
             let lines = vec![
                 Line::from(Span::styled(s.name.clone(), theme::HIGHLIGHT)),
@@ -217,6 +231,8 @@ impl ServerDetailScreen {
                 info_line("Map", &s.map),
                 info_line("Time", &time_str),
                 info_line("Platform", s.platform_str()),
+                info_line("Ping", &ping_str),
+                info_line("Country", &country_str),
                 info_line(
                     "BattlEye",
                     if s.battleye { "On" } else { "Off" },

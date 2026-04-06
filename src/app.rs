@@ -1,4 +1,5 @@
 use ratatui::Frame;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::api::news::NewsArticle;
@@ -39,6 +40,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub selected_server: Option<usize>,
     pub direct_connect_target: Option<(String, u16)>,
+    pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pending_launch: Option<PendingLaunch>,
     screen_stack: Vec<Box<dyn Screen>>,
 }
@@ -63,6 +65,7 @@ impl App {
             status_message: None,
             selected_server: None,
             direct_connect_target: None,
+            server_runtime: HashMap::new(),
             pending_launch: None,
             screen_stack: vec![Box::new(main_menu::MainMenuScreen::new())],
         }
@@ -361,6 +364,14 @@ impl App {
             crate::mods::ensure_mod_symlinks(dp, wp, mod_ids)?;
         }
         Ok(())
+    }
+
+    pub fn ensure_server_runtime_info(&mut self, ip: &str) {
+        if self.server_runtime.contains_key(ip) {
+            return;
+        }
+        let info = crate::server::runtime::lookup_runtime_info(ip);
+        self.server_runtime.insert(ip.to_string(), info);
     }
 
     pub fn tick(&mut self) {

@@ -126,6 +126,7 @@ impl ServerBrowserScreen {
 impl Screen for ServerBrowserScreen {
     fn on_enter(&mut self, app: &mut App) {
         self.apply_search(app);
+        self.prefetch_selected_server_meta(app);
     }
 
     fn render(&mut self, f: &mut Frame, app: &App) {
@@ -160,29 +161,34 @@ impl Screen for ServerBrowserScreen {
                 self.sort_column = SortColumn::Name;
                 self.sort_desc = false;
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Char('2') => {
                 self.sort_column = SortColumn::Players;
                 self.sort_desc = true;
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Char('3') => {
                 self.sort_column = SortColumn::Map;
                 self.sort_desc = false;
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Char('4') => {
                 self.sort_column = SortColumn::Mods;
                 self.sort_desc = true;
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Char('s') => {
                 self.sort_desc = !self.sort_desc;
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -194,6 +200,7 @@ impl Screen for ServerBrowserScreen {
                 };
                 self.table_state.select(Some(new));
                 self.scroll_offset = 0;
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -202,26 +209,31 @@ impl Screen for ServerBrowserScreen {
                 let new = if len == 0 { 0 } else { (i + 1) % len };
                 self.table_state.select(Some(new));
                 self.scroll_offset = 0;
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::PageUp => {
                 let i = self.table_state.selected().unwrap_or(0);
                 self.table_state.select(Some(i.saturating_sub(20)));
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::PageDown => {
                 let i = self.table_state.selected().unwrap_or(0);
                 let max = self.filtered_indices.len().saturating_sub(1);
                 self.table_state.select(Some((i + 20).min(max)));
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Home => {
                 self.table_state.select(Some(0));
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::End => {
                 self.table_state
                     .select(Some(self.filtered_indices.len().saturating_sub(1)));
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Enter => {
@@ -243,6 +255,7 @@ impl ServerBrowserScreen {
                 self.search_active = false;
                 self.search_input.clear();
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Enter => {
@@ -252,6 +265,7 @@ impl ServerBrowserScreen {
             KeyCode::Backspace => {
                 self.search_input.pop();
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             KeyCode::Char(c) => {
@@ -261,9 +275,19 @@ impl ServerBrowserScreen {
                     self.search_input.push(c);
                 }
                 self.apply_search(app);
+                self.prefetch_selected_server_meta(app);
                 Action::None
             }
             _ => Action::None,
+        }
+    }
+
+    fn prefetch_selected_server_meta(&self, app: &mut App) {
+        if let Some(ip) = self
+            .selected_server_index()
+            .and_then(|idx| app.servers.get(idx).map(|server| server.endpoint.ip.clone()))
+        {
+            app.ensure_server_runtime_info(&ip);
         }
     }
 
@@ -412,6 +436,20 @@ impl ServerBrowserScreen {
                     (if s.is_official() { "Yes" } else { "No" }).into(),
                 ),
                 detail_line("Platform", s.platform_str().into()),
+                detail_line(
+                    "Ping",
+                    app.server_runtime
+                        .get(&s.endpoint.ip)
+                        .and_then(|info| info.ping_ms.map(|value| format!("{value:.1} ms")))
+                        .unwrap_or_else(|| "N/A".into()),
+                ),
+                detail_line(
+                    "Country",
+                    app.server_runtime
+                        .get(&s.endpoint.ip)
+                        .and_then(|info| info.country.clone())
+                        .unwrap_or_else(|| "Unknown".into()),
+                ),
                 detail_line("Version", s.version.clone()),
                 Line::from(""),
                 detail_line("IP", s.endpoint.ip.clone()),
