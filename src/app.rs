@@ -138,6 +138,19 @@ impl App {
         }
     }
 
+    pub(crate) fn ensure_startup_max_map_count_gate(&mut self) -> anyhow::Result<bool> {
+        match crate::config::current_max_map_count_state()? {
+            crate::config::MaxMapCountState::Ready(_) => Ok(false),
+            crate::config::MaxMapCountState::UnsupportedPlatform => Ok(false),
+            crate::config::MaxMapCountState::NeedsFix(_) => {
+                self.process_action(Action::PushScreen(ScreenId::Confirm(
+                    ConfirmAction::FixMaxMapCount,
+                )));
+                Ok(true)
+            }
+        }
+    }
+
     pub fn init_main_menu(&mut self) {
         if let Some(mut screen) = self.screen_stack.pop() {
             screen.on_enter(self);
@@ -379,6 +392,7 @@ impl App {
             ScreenId::PasswordPrompt => Box::new(password_prompt::PasswordPromptScreen::new()),
             ScreenId::FilterSelect => Box::new(filter::FilterSelectScreen::new(self)),
             ScreenId::UpdatePrompt => Box::new(update_prompt::UpdatePromptScreen::new()),
+            ScreenId::Info(data) => Box::new(info_screen::InfoScreen::new(data)),
             ScreenId::Confirm(action) => Box::new(popup::ConfirmScreen::new(action)),
         }
     }
@@ -1045,6 +1059,25 @@ mod tests {
             Some("Update available: 0.4.0")
         );
         assert_eq!(app.screen_stack.len(), 2);
+    }
+
+    #[test]
+    fn startup_pushes_confirm_screen_when_vm_max_map_count_is_below_minimum() {
+        let _guard = env_lock();
+        let root = temp_path("app-max-map-count");
+        fs::create_dir_all(&root).expect("create temp root");
+        let path = root.join("max_map_count");
+        fs::write(&path, "524288\n").expect("write low vm.max_map_count");
+        let env = EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_PATH", path.as_os_str());
+
+        let mut app = test_app();
+        app.ensure_startup_max_map_count_gate()
+            .expect("evaluate startup gate");
+
+        assert_eq!(app.screen_stack.len(), 2);
+
+        drop(env);
+        fs::remove_dir_all(root).expect("remove temp root");
     }
 
     #[test]

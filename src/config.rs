@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const DAYZ_GAME_ID: u32 = 221100;
+pub const REQUIRED_MAX_MAP_COUNT: u64 = 1_048_576;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone)]
@@ -148,6 +149,85 @@ fn parse_or<T: std::str::FromStr>(vars: &HashMap<String, String>, key: &str, def
         .unwrap_or(default)
 }
 
+pub(crate) fn max_map_count_state_from_path(path: &Path) -> Result<MaxMapCountState> {
+    if !path.exists() {
+        return Ok(MaxMapCountState::UnsupportedPlatform);
+    }
+
+    let contents = fs::read_to_string(path)?;
+    let current = contents
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| anyhow::anyhow!("failed to parse vm.max_map_count: {error}"))?;
+
+    if current < REQUIRED_MAX_MAP_COUNT {
+        Ok(MaxMapCountState::NeedsFix(current))
+    } else {
+        Ok(MaxMapCountState::Ready(current))
+    }
+}
+
+pub fn current_max_map_count_state() -> Result<MaxMapCountState> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(path) = std::env::var_os("DAYZ_MAX_MAP_COUNT_PATH") {
+            return max_map_count_state_from_path(Path::new(&path));
+        }
+
+        return max_map_count_state_from_path(Path::new("/proc/sys/vm/max_map_count"));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(MaxMapCountState::UnsupportedPlatform)
+    }
+}
+
+pub fn max_map_count_commands() -> [String; 2] {
+    [
+        r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#.to_string(),
+        "sudo sysctl -w vm.max_map_count=1048576".to_string(),
+    ]
+}
+
+pub fn fix_max_map_count() -> Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut tee = Command::new("sudo")
+        .args(["tee", "/etc/sysctl.d/50-dayz.conf"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()?;
+
+    tee.stdin
+        .as_mut()
+        .expect("sudo tee stdin")
+        .write_all(b"vm.max_map_count=1048576\n")?;
+
+    let status = tee.wait()?;
+    if !status.success() {
+        return Err(anyhow::anyhow!("failed to update vm.max_map_count config"));
+    }
+
+    let status = Command::new("sudo")
+        .args(["sysctl", "-w", "vm.max_map_count=1048576"])
+        .status()?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("failed to apply vm.max_map_count"));
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaxMapCountState {
+    Ready(u64),
+    NeedsFix(u64),
+    UnsupportedPlatform,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +276,49 @@ mod tests {
         assert!(!has_legacy_data());
 
         drop(home_env);
+    }
+
+    #[test]
+    fn parses_and_compares_vm_max_map_count_from_file_contents() {
+        let _guard = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "dayz-cmd-max-map-count-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create temp root");
+        let path = root.join("max_map_count");
+
+        fs::write(&path, "1048576\n").expect("write ready value");
+        assert_eq!(
+            max_map_count_state_from_path(&path).expect("read ready value"),
+            MaxMapCountState::Ready(REQUIRED_MAX_MAP_COUNT)
+        );
+
+        fs::write(&path, "524288\n").expect("write low value");
+        assert_eq!(
+            max_map_count_state_from_path(&path).expect("read low value"),
+            MaxMapCountState::NeedsFix(524288)
+        );
+
+        fs::remove_file(&path).expect("remove value file");
+        assert_eq!(
+            max_map_count_state_from_path(&path).expect("missing file"),
+            MaxMapCountState::UnsupportedPlatform
+        );
+
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn builds_the_manual_vm_max_map_count_commands() {
+        assert_eq!(
+            max_map_count_commands(),
+            [
+                r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#
+                    .to_string(),
+                "sudo sysctl -w vm.max_map_count=1048576".to_string(),
+            ]
+        );
     }
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
