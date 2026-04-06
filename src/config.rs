@@ -272,10 +272,8 @@ mod tests {
     #[test]
     fn parses_and_compares_vm_max_map_count_from_file_contents() {
         let _guard = env_lock();
-        let root = std::env::temp_dir().join(format!(
-            "dayz-cmd-max-map-count-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("dayz-cmd-max-map-count-{}", std::process::id()));
         fs::create_dir_all(&root).expect("create temp root");
         let path = root.join("max_map_count");
 
@@ -328,7 +326,8 @@ mod tests {
             "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$FAKE_SH_LOG\"\nexit 0\n",
         );
         let log_env = EnvVarGuard::set("FAKE_SH_LOG", log_path.as_os_str());
-        let shell_env = EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_SHELL", bin_dir.join("sh").as_os_str());
+        let shell_env =
+            EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_SHELL", bin_dir.join("sh").as_os_str());
 
         fix_max_map_count().expect("run fix commands");
 

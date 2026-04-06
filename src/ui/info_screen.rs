@@ -29,7 +29,10 @@ impl Screen for InfoScreen {
             lines.push(Line::from(Span::styled(line, theme::NORMAL)));
         }
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(" Press any key to exit ", theme::KEY_HINT)));
+        lines.push(Line::from(Span::styled(
+            " Press any key to exit ",
+            theme::KEY_HINT,
+        )));
 
         let para = Paragraph::new(lines)
             .block(

@@ -685,8 +685,9 @@ impl App {
         self.mods_db = db;
 
         let Some(steam) = self.steam.as_ref() else {
-            self.status_message =
-                Some("Steam client not available; installed workshop mods refreshed locally".into());
+            self.status_message = Some(
+                "Steam client not available; installed workshop mods refreshed locally".into(),
+            );
             return;
         };
 
@@ -696,8 +697,7 @@ impl App {
         }
 
         self.status_message = Some(
-            "DayZ game itself updates through Steam; refreshing installed workshop mods..."
-                .into(),
+            "DayZ game itself updates through Steam; refreshing installed workshop mods...".into(),
         );
 
         let queued_mod_ids = match steam.ensure_mods_downloaded(&workshop_ids, true) {
@@ -710,8 +710,7 @@ impl App {
 
         if queued_mod_ids.is_empty() {
             self.status_message = Some(
-                "DayZ game itself updates through Steam; installed workshop mods refreshed"
-                    .into(),
+                "DayZ game itself updates through Steam; installed workshop mods refreshed".into(),
             );
             return;
         }
@@ -769,8 +768,7 @@ impl App {
         }
 
         self.status_message = Some(
-            "DayZ game itself updates through Steam; refreshing installed workshop mods..."
-                .into(),
+            "DayZ game itself updates through Steam; refreshing installed workshop mods...".into(),
         );
 
         let queued_mod_ids = match steam.ensure_mods_downloaded(&workshop_ids, true) {
@@ -783,8 +781,7 @@ impl App {
 
         if queued_mod_ids.is_empty() {
             self.status_message = Some(
-                "DayZ game itself updates through Steam; installed workshop mods refreshed"
-                    .into(),
+                "DayZ game itself updates through Steam; installed workshop mods refreshed".into(),
             );
             return;
         }
@@ -834,10 +831,7 @@ impl App {
         self.apply_pending_download_resolution(resolution);
     }
 
-    fn advance_pending_downloads_with(
-        &mut self,
-        steam: Option<&dyn WorkshopDownloadClient>,
-    ) {
+    fn advance_pending_downloads_with(&mut self, steam: Option<&dyn WorkshopDownloadClient>) {
         let Some(pending) = self.pending_launch.take() else {
             return;
         };
@@ -1088,8 +1082,8 @@ mod tests {
     use crate::server::Server;
     use crate::server::types::{ServerEndpoint, ServerMod};
     use crate::steam::ItemState;
-    use std::collections::HashMap;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::ffi::OsString;
     use std::fs;
     use std::io::Read;
@@ -1526,7 +1520,10 @@ mod tests {
         let steam = FakeSteam::new();
         app.refresh_installed_mods_with(&steam);
 
-        let pending = app.pending_launch.as_ref().expect("pending refresh remains");
+        let pending = app
+            .pending_launch
+            .as_ref()
+            .expect("pending refresh remains");
         assert_eq!(pending.kind, PendingDownloadKind::RefreshInstalledMods);
         assert_eq!(pending.pending_mod_ids, vec![22]);
         assert!(steam.queued_calls().is_empty());

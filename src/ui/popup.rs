@@ -138,12 +138,10 @@ impl ConfirmScreen {
                 Action::LaunchGame
             }
             ConfirmAction::MigrateLegacy => Action::PopScreen,
-            ConfirmAction::FixMaxMapCount => Action::PushScreen(ScreenId::Info(
-                InfoScreenData {
-                    title: "vm.max_map_count check".into(),
-                    lines: crate::config::max_map_count_commands().to_vec(),
-                },
-            )),
+            ConfirmAction::FixMaxMapCount => Action::PushScreen(ScreenId::Info(InfoScreenData {
+                title: "vm.max_map_count check".into(),
+                lines: crate::config::max_map_count_commands().to_vec(),
+            })),
             _ => Action::PopScreen,
         }
     }
@@ -428,8 +426,10 @@ mod tests {
         let mut ctrl_c_app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
         let mut screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
 
-        let esc_action =
-            screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut esc_app);
+        let esc_action = screen.handle_key(
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut esc_app,
+        );
         let ctrl_c_action = screen.handle_key(
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
             &mut ctrl_c_app,

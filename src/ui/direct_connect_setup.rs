@@ -308,10 +308,8 @@ mod tests {
             Some("secret")
         );
 
-        let launch_action = screen.handle_key(
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-            &mut app,
-        );
+        let launch_action =
+            screen.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut app);
 
         assert_eq!(launch_action, Action::LaunchGame);
         assert_eq!(
@@ -370,7 +368,10 @@ mod tests {
         app.launch_prep = Some(prep("5.6.7.8", 2402));
         let mut screen = DirectConnectSetupScreen::new();
         screen.on_enter(&mut app);
-        let _ = screen.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), &mut app);
+        let _ = screen.handle_key(
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+            &mut app,
+        );
 
         let action = screen.handle_key(
             KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
