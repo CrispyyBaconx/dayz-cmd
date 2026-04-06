@@ -112,6 +112,22 @@ impl Profile {
             })
             .collect()
     }
+
+    pub fn toggle_option(&mut self, key: &str) -> Option<bool> {
+        let option = self.options.get_mut(key)?;
+        option.enabled = !option.enabled;
+        Some(option.enabled)
+    }
+
+    pub fn set_option_value(&mut self, key: &str, value: &str) -> Option<()> {
+        let option = self.options.get_mut(key)?;
+        option.value = if value.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::String(value.to_string()))
+        };
+        Some(())
+    }
 }
 
 impl Default for Profile {
@@ -217,5 +233,30 @@ impl Default for Profile {
             options,
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggles_launch_option_enabled_state() {
+        let mut profile = Profile::default();
+
+        assert_eq!(profile.options.get("window").map(|opt| opt.enabled), Some(false));
+        assert!(profile.toggle_option("window").is_some());
+        assert_eq!(profile.options.get("window").map(|opt| opt.enabled), Some(true));
+    }
+
+    #[test]
+    fn updates_launch_option_value_and_launch_args() {
+        let mut profile = Profile::default();
+
+        assert!(profile.set_option_value("profiles", "/tmp/dayz-profile").is_some());
+        assert!(profile.toggle_option("profiles").is_some());
+
+        let args = profile.get_launch_args();
+        assert!(args.iter().any(|arg| arg == "-profiles=/tmp/dayz-profile"));
     }
 }

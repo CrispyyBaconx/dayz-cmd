@@ -9,8 +9,11 @@ use crate::app::App;
 
 pub struct ConfigScreen {
     pub list_state: ListState,
+    pub launch_options_state: ListState,
     pub editing: Option<EditField>,
     pub edit_buffer: String,
+    pub show_launch_options: bool,
+    launch_option_keys: Vec<String>,
     items: Vec<ConfigItem>,
 }
 
@@ -30,14 +33,18 @@ enum ConfigItem {
 pub enum EditField {
     PlayerName,
     SteamRoot,
+    LaunchOptionValue(String),
 }
 
 impl ConfigScreen {
     pub fn new() -> Self {
         Self {
             list_state: ListState::default().with_selected(Some(0)),
+            launch_options_state: ListState::default().with_selected(Some(0)),
             editing: None,
             edit_buffer: String::new(),
+            show_launch_options: false,
+            launch_option_keys: Vec::new(),
             items: Vec::new(),
         }
     }
@@ -88,6 +95,11 @@ impl Screen for ConfigScreen {
             return;
         }
 
+        if self.show_launch_options {
+            self.render_launch_options(f, area, app);
+            return;
+        }
+
         let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(10)]).split(area);
 
         let items: Vec<ListItem> = self
@@ -114,6 +126,10 @@ impl Screen for ConfigScreen {
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
         if self.editing.is_some() {
             return self.handle_edit_key(key, app);
+        }
+
+        if self.show_launch_options {
+            return self.handle_launch_options_key(key, app);
         }
 
         match key.code {
@@ -165,38 +181,9 @@ impl ConfigScreen {
                 Action::None
             }
             ConfigItem::LaunchOptions => {
-                // Toggle through launch options
-                let keys: Vec<String> = app.profile.options.keys().cloned().collect();
-                let mut toggled = Vec::new();
-                for key in &keys {
-                    if let Some(opt) = app.profile.options.get_mut(key) {
-                        opt.enabled = !opt.enabled;
-                        toggled.push(format!(
-                            "{}: {}",
-                            key,
-                            if opt.enabled { "ON" } else { "OFF" }
-                        ));
-                        opt.enabled = !opt.enabled; // revert - just show info
-                    }
-                }
-                let info: Vec<String> = app
-                    .profile
-                    .options
-                    .iter()
-                    .map(|(k, v)| {
-                        format!(
-                            "{} -{}{} ({})",
-                            if v.enabled { "[x]" } else { "[ ]" },
-                            k,
-                            v.value
-                                .as_ref()
-                                .map(|val| format!("={val}"))
-                                .unwrap_or_default(),
-                            v.description
-                        )
-                    })
-                    .collect();
-                app.status_message = Some(format!("Launch options:\n{}", info.join(" | ")));
+                self.show_launch_options = true;
+                self.launch_option_keys = app.profile.options.keys().cloned().collect();
+                self.launch_options_state.select(Some(0));
                 Action::None
             }
             ConfigItem::InstalledMods => {
@@ -288,6 +275,12 @@ impl ConfigScreen {
                                 Some("Invalid Steam root (DayZ not found)".into());
                         }
                     }
+                    EditField::LaunchOptionValue(key) => {
+                        if app.profile.set_option_value(&key, &self.edit_buffer).is_some() {
+                            let _ = app.profile.save(&app.config.profile_path);
+                            app.status_message = Some(format!("Updated launch option '{key}'"));
+                        }
+                    }
                 }
                 self.edit_buffer.clear();
                 Action::None
@@ -308,6 +301,7 @@ impl ConfigScreen {
         let label = match field {
             EditField::PlayerName => "Player Name",
             EditField::SteamRoot => "Steam Root Path",
+            EditField::LaunchOptionValue(_) => "Launch Option Value",
         };
 
         let lines = vec![
@@ -338,6 +332,96 @@ impl ConfigScreen {
             )
             .wrap(Wrap { trim: true });
         f.render_widget(para, area);
+    }
+
+    fn render_launch_options(&mut self, f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
+        let items: Vec<ListItem> = self
+            .launch_option_keys
+            .iter()
+            .filter_map(|key| app.profile.options.get(key).map(|option| (key, option)))
+            .map(|(key, option)| {
+                let enabled = if option.enabled { "[x]" } else { "[ ]" };
+                let value = option
+                    .value
+                    .as_ref()
+                    .map(format_option_value)
+                    .unwrap_or_else(|| "-".into());
+                ListItem::new(vec![
+                    Line::from(format!("  {enabled} -{key} = {value}")),
+                    Line::from(Span::styled(
+                        format!("    {}", option.description),
+                        theme::DIM,
+                    )),
+                ])
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::BORDER)
+                    .title(" Launch Options (Space: toggle, Enter: edit, Esc: back) "),
+            )
+            .highlight_style(theme::SELECTED)
+            .highlight_symbol("▶ ");
+
+        f.render_stateful_widget(list, area, &mut self.launch_options_state);
+    }
+
+    fn handle_launch_options_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.show_launch_options = false;
+                Action::None
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let i = self.launch_options_state.selected().unwrap_or(0);
+                let new = if i == 0 {
+                    self.launch_option_keys.len().saturating_sub(1)
+                } else {
+                    i - 1
+                };
+                self.launch_options_state.select(Some(new));
+                Action::None
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let i = self.launch_options_state.selected().unwrap_or(0);
+                let len = self.launch_option_keys.len();
+                let new = if len == 0 { 0 } else { (i + 1) % len };
+                self.launch_options_state.select(Some(new));
+                Action::None
+            }
+            KeyCode::Char(' ') => {
+                if let Some(key) = self.selected_launch_option_key() {
+                    if app.profile.toggle_option(&key).is_some() {
+                        let _ = app.profile.save(&app.config.profile_path);
+                    }
+                }
+                Action::None
+            }
+            KeyCode::Enter => {
+                if let Some(key) = self.selected_launch_option_key() {
+                    let current = app
+                        .profile
+                        .options
+                        .get(&key)
+                        .and_then(|option| option.value.as_ref().map(format_option_value))
+                        .unwrap_or_default();
+                    self.editing = Some(EditField::LaunchOptionValue(key));
+                    self.edit_buffer = current;
+                }
+                Action::None
+            }
+            _ => Action::None,
+        }
+    }
+
+    fn selected_launch_option_key(&self) -> Option<String> {
+        self.launch_options_state
+            .selected()
+            .and_then(|idx| self.launch_option_keys.get(idx))
+            .cloned()
     }
 }
 
@@ -374,4 +458,11 @@ fn render_about_info(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
             .title(" Info "),
     );
     f.render_widget(para, area);
+}
+
+fn format_option_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value.clone(),
+        other => other.to_string(),
+    }
 }
