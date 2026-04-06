@@ -1,7 +1,7 @@
 use crate::api::offline_releases::ReleaseInfo;
 use crate::config::Config;
 use crate::offline::storage::{
-    cleanup_stale_staging, offline_root, promote_release, release_dir_for_tag, staging_dir_for_tag,
+    cleanup_stale_staging, offline_root, promote_release, staging_dir_for_tag,
     validate_extracted_release,
 };
 use anyhow::{Context, Result};
@@ -136,6 +136,7 @@ fn strip_first_path_component(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::offline::storage::release_dir_for_tag;
     use crate::offline::storage::save_offline_state;
     use crate::offline::types::OfflineState;
     use std::fs;
