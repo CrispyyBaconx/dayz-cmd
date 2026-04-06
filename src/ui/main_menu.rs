@@ -95,9 +95,10 @@ impl Screen for MainMenuScreen {
 
     fn render(&mut self, f: &mut Frame, app: &App) {
         let area = f.area();
+        let news_height = (app.news.len() as u16 + 2).min(8);
         let chunks = Layout::vertical([
             Constraint::Length(3),
-            Constraint::Min(6),
+            Constraint::Length(news_height),
             Constraint::Length(3),
             Constraint::Min(0),
         ])

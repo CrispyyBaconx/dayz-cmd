@@ -37,6 +37,7 @@ pub fn fetch_news(timeout_secs: u64) -> Result<Vec<NewsArticle>> {
     let url = "https://dayz.com/api/article?rowsPerPage=100";
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
+        .danger_accept_invalid_certs(true)
         .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
