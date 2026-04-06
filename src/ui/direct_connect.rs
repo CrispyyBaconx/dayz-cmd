@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
@@ -90,6 +90,10 @@ impl Screen for DirectConnectScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Action::PopScreen;
+        }
+
         match key.code {
             KeyCode::Esc => Action::PopScreen,
             KeyCode::Tab | KeyCode::BackTab => {

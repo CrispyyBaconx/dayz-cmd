@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -70,6 +70,10 @@ impl Screen for ConfirmScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Action::PopScreen;
+        }
+
         match key.code {
             KeyCode::Esc => Action::PopScreen,
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {

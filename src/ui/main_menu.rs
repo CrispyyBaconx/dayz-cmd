@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -111,6 +111,10 @@ impl Screen for MainMenuScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent, _app: &mut App) -> Action {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Action::Quit;
+        }
+
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
             KeyCode::Up | KeyCode::Char('k') => {

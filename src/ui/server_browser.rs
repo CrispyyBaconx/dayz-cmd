@@ -151,8 +151,12 @@ impl Screen for ServerBrowserScreen {
             return self.handle_search_key(key, app);
         }
 
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Action::PopScreen;
+        }
+
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => Action::PopScreen,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => Action::PopScreen,
             KeyCode::Char('/') => {
                 self.search_active = true;
                 Action::None

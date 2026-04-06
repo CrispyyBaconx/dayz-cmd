@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
@@ -175,8 +175,12 @@ impl Screen for FilterSelectScreen {
             return self.handle_edit_key(key);
         }
 
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Action::PopScreen;
+        }
+
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => Action::PopScreen,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => Action::PopScreen,
             KeyCode::Up | KeyCode::Char('k') => {
                 let i = self.list_state.selected().unwrap_or(0);
                 let new = if i == 0 { self.items.len() - 1 } else { i - 1 };

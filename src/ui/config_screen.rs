@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
@@ -132,8 +132,12 @@ impl Screen for ConfigScreen {
             return self.handle_launch_options_key(key, app);
         }
 
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Action::PopScreen;
+        }
+
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => Action::PopScreen,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => Action::PopScreen,
             KeyCode::Up | KeyCode::Char('k') => {
                 let i = self.list_state.selected().unwrap_or(0);
                 let new = if i == 0 { self.items.len() - 1 } else { i - 1 };
@@ -358,8 +362,13 @@ impl ConfigScreen {
     }
 
     fn handle_launch_options_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.show_launch_options = false;
+            return Action::None;
+        }
+
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => {
                 self.show_launch_options = false;
                 Action::None
             }
