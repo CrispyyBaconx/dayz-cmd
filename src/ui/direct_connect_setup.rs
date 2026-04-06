@@ -121,15 +121,14 @@ impl Screen for DirectConnectSetupScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
-        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if key.code == KeyCode::Esc
+            || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
+        {
+            app.clear_direct_connect_launch_prep();
             return Action::PopScreen;
         }
 
         match key.code {
-            KeyCode::Esc => {
-                app.clear_direct_connect_launch_prep();
-                Action::PopScreen
-            }
             KeyCode::Up | KeyCode::Char('k') => {
                 let Some(count) = (!app.mods_db.mods.is_empty()).then_some(app.mods_db.mods.len())
                 else {
@@ -335,6 +334,22 @@ mod tests {
         screen.on_enter(&mut app);
 
         let action = screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
+        assert!(app.launch_prep.is_none());
+    }
+
+    #[test]
+    fn ctrl_c_clears_pending_direct_connect_launch_prep() {
+        let mut app = test_app();
+        app.launch_prep = Some(prep("5.6.7.8", 2402));
+        let mut screen = DirectConnectSetupScreen::new();
+        screen.on_enter(&mut app);
+
+        let action = screen.handle_key(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut app,
+        );
 
         assert_eq!(action, Action::PopScreen);
         assert!(app.launch_prep.is_none());
