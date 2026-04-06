@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -191,34 +192,22 @@ pub fn max_map_count_commands() -> [String; 2] {
 }
 
 pub fn fix_max_map_count() -> Result<()> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
 
-    let mut tee = Command::new("sudo")
-        .args(["tee", "/etc/sysctl.d/50-dayz.conf"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()?;
-
-    tee.stdin
-        .as_mut()
-        .expect("sudo tee stdin")
-        .write_all(b"vm.max_map_count=1048576\n")?;
-
-    let status = tee.wait()?;
-    if !status.success() {
-        return Err(anyhow::anyhow!("failed to update vm.max_map_count config"));
-    }
-
-    let status = Command::new("sudo")
-        .args(["sysctl", "-w", "vm.max_map_count=1048576"])
-        .status()?;
-
-    if !status.success() {
-        return Err(anyhow::anyhow!("failed to apply vm.max_map_count"));
+    for command in max_map_count_commands() {
+        let status = Command::new(max_map_count_shell())
+            .args(["-c", &command])
+            .status()?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("failed to run `{command}`"));
+        }
     }
 
     Ok(())
+}
+
+fn max_map_count_shell() -> OsString {
+    std::env::var_os("DAYZ_MAX_MAP_COUNT_SHELL").unwrap_or_else(|| OsString::from("sh"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +221,8 @@ pub enum MaxMapCountState {
 mod tests {
     use super::*;
     use std::ffi::OsString;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use std::sync::{Mutex, MutexGuard};
 
     #[test]
@@ -321,6 +312,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn fix_max_map_count_uses_the_literal_shell_commands() {
+        let _guard = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "dayz-cmd-fix-max-map-count-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test"),
+        ));
+        let bin_dir = root.join("bin");
+        let log_path = root.join("sh.log");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable(
+            &bin_dir.join("sh"),
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$FAKE_SH_LOG\"\nexit 0\n",
+        );
+        let log_env = EnvVarGuard::set("FAKE_SH_LOG", log_path.as_os_str());
+        let shell_env = EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_SHELL", bin_dir.join("sh").as_os_str());
+
+        fix_max_map_count().expect("run fix commands");
+
+        assert_eq!(
+            fs::read_to_string(&log_path).expect("read shell log"),
+            format!(
+                "-c\n{}\n-c\n{}\n",
+                max_map_count_commands()[0],
+                max_map_count_commands()[1]
+            )
+        );
+
+        drop(shell_env);
+        drop(log_env);
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn env_lock() -> MutexGuard<'static, ()> {
@@ -354,5 +379,12 @@ mod tests {
                 unsafe { std::env::remove_var(self.key) };
             }
         }
+    }
+
+    fn write_executable(path: &Path, body: &str) {
+        fs::write(path, body).expect("write script");
+        let mut perms = fs::metadata(path).expect("script metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("set script permissions");
     }
 }

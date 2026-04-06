@@ -185,7 +185,7 @@ impl ConfirmScreen {
                 Action::LaunchGame
             }
             ConfirmAction::FixMaxMapCount => match crate::config::fix_max_map_count() {
-                Ok(()) => Action::PopScreen,
+                Ok(()) => Action::Quit,
                 Err(error) => {
                     app.status_message = Some(format!("Failed to fix vm.max_map_count: {error}"));
                     Action::Quit
@@ -328,6 +328,11 @@ mod tests {
         write_executable(&bin_dir.join("sudo"), "#!/bin/sh\nexit 1\n");
     }
 
+    fn setup_sh_success_script(bin_dir: &Path) {
+        fs::create_dir_all(bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("sh"), "#!/bin/sh\nexit 0\n");
+    }
+
     #[test]
     fn confirming_remove_mod_links_executes_action() {
         let root = temp_path("popup-remove-links");
@@ -412,6 +417,27 @@ mod tests {
         );
 
         drop(path_env);
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn confirming_max_map_count_fix_exits_after_a_successful_fix() {
+        let _guard = env_lock();
+        let root = temp_path("popup-max-map-count-success");
+        let bin_dir = root.join("bin");
+        setup_sh_success_script(&bin_dir);
+        let shell_env =
+            EnvVarGuard::set("DAYZ_MAX_MAP_COUNT_SHELL", bin_dir.join("sh").as_os_str());
+
+        let mut app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
+
+        let action = screen.confirm(&mut app);
+
+        assert_eq!(action, Action::Quit);
+        assert!(app.status_message.is_none());
+
+        drop(shell_env);
         fs::remove_dir_all(root).expect("remove temp root");
     }
 
