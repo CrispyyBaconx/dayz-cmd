@@ -97,11 +97,11 @@ impl Screen for ConfirmScreen {
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            return Action::PopScreen;
+            return self.cancel(app);
         }
 
         match key.code {
-            KeyCode::Esc => Action::PopScreen,
+            KeyCode::Esc => self.cancel(app),
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.selected = !self.selected;
                 Action::None
@@ -124,6 +124,13 @@ impl Screen for ConfirmScreen {
 }
 
 impl ConfirmScreen {
+    fn cancel(&self, app: &mut App) -> Action {
+        match self.action {
+            ConfirmAction::FixMaxMapCount => self.decline(app),
+            _ => Action::PopScreen,
+        }
+    }
+
     fn decline(&self, app: &mut App) -> Action {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => {
@@ -333,6 +340,21 @@ mod tests {
         write_executable(&bin_dir.join("sh"), "#!/bin/sh\nexit 0\n");
     }
 
+    fn setup_pkill_success_script(bin_dir: &Path) {
+        fs::create_dir_all(bin_dir).expect("create bin dir");
+        write_executable(&bin_dir.join("pkill"), "#!/bin/sh\nexit 0\n");
+    }
+
+    fn prepend_path(bin_dir: &Path) -> EnvVarGuard {
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut combined_path = OsString::from(bin_dir.as_os_str());
+        if !original_path.is_empty() {
+            combined_path.push(":");
+            combined_path.push(&original_path);
+        }
+        EnvVarGuard::set("PATH", &combined_path)
+    }
+
     #[test]
     fn confirming_remove_mod_links_executes_action() {
         let root = temp_path("popup-remove-links");
@@ -358,9 +380,13 @@ mod tests {
 
     #[test]
     fn confirming_kill_dayz_retries_launch_flow() {
+        let _guard = env_lock();
         let root = temp_path("popup-kill-dayz");
+        let bin_dir = root.join("bin");
         let dayz_path = root.join("dayz");
         let workshop_path = root.join("workshop");
+        setup_pkill_success_script(&bin_dir);
+        let path_env = prepend_path(&bin_dir);
         fs::create_dir_all(&dayz_path).expect("create dayz path");
         fs::create_dir_all(&workshop_path).expect("create workshop path");
 
@@ -372,6 +398,7 @@ mod tests {
         assert_eq!(action, Action::LaunchGame);
         assert!(app.skip_running_check_once);
 
+        drop(path_env);
         fs::remove_dir_all(root).expect("remove temp root");
     }
 
@@ -393,6 +420,31 @@ mod tests {
                 ],
             }))
         );
+    }
+
+    #[test]
+    fn escape_and_ctrl_c_on_max_map_count_fix_follow_decline_flow() {
+        let mut esc_app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let mut ctrl_c_app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let mut screen = ConfirmScreen::new(ConfirmAction::FixMaxMapCount);
+
+        let esc_action =
+            screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut esc_app);
+        let ctrl_c_action = screen.handle_key(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut ctrl_c_app,
+        );
+
+        let expected = Action::PushScreen(ScreenId::Info(InfoScreenData {
+            title: "vm.max_map_count check".into(),
+            lines: vec![
+                r#"echo "vm.max_map_count=1048576" | sudo tee /etc/sysctl.d/50-dayz.conf"#.into(),
+                "sudo sysctl -w vm.max_map_count=1048576".into(),
+            ],
+        }));
+
+        assert_eq!(esc_action, expected.clone());
+        assert_eq!(ctrl_c_action, expected);
     }
 
     #[test]
