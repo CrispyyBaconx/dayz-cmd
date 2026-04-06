@@ -423,6 +423,11 @@ impl App {
             .unwrap_or_else(|| "Survivor".into());
         let extra_args = self.profile.get_launch_args();
 
+        let offline_update = match &target {
+            LaunchTarget::Offline { mission_id } => Some((mission_id.clone(), offline_spawn_enabled)),
+            _ => None,
+        };
+
         let (args, history_entry) = match target {
             LaunchTarget::KnownServer(idx) => {
                 let Some(server) = self.servers.get(idx) else {
@@ -456,23 +461,11 @@ impl App {
                 (args, history_entry)
             }
             LaunchTarget::Offline { mission_id } => {
-                let Some(dayz_path) = self.dayz_path.as_ref() else {
+                let Some(_dayz_path) = self.dayz_path.as_ref() else {
                     self.status_message =
                         Some("Cannot launch offline: DayZ path not detected".into());
                     return;
                 };
-
-                if let Err(e) = crate::launch::apply_offline_spawn_setting(
-                    dayz_path,
-                    &mission_id,
-                    offline_spawn_enabled,
-                ) {
-                    self.status_message =
-                        Some(format!("Failed to update offline spawn setting: {e}"));
-                    self.asked_update_mods = false;
-                    self.update_mods_before_launch = false;
-                    return;
-                }
 
                 let args = crate::launch::build_offline_launch_args(
                     &mission_id,
@@ -534,6 +527,26 @@ impl App {
             self.asked_update_mods = false;
             self.update_mods_before_launch = false;
             return;
+        }
+
+        if let Some((mission_id, spawn_enabled)) = offline_update {
+            let Some(dayz_path) = self.dayz_path.as_ref() else {
+                self.status_message =
+                    Some("Cannot launch offline: DayZ path not detected".into());
+                self.asked_update_mods = false;
+                self.update_mods_before_launch = false;
+                return;
+            };
+
+            if let Err(e) =
+                crate::launch::apply_offline_spawn_setting(dayz_path, &mission_id, spawn_enabled)
+            {
+                self.status_message =
+                    Some(format!("Failed to update offline spawn setting: {e}"));
+                self.asked_update_mods = false;
+                self.update_mods_before_launch = false;
+                return;
+            }
         }
 
         self.asked_update_mods = false;
@@ -1170,6 +1183,48 @@ mod tests {
         drop(path_env);
         fs::remove_dir_all(&dayz_path).expect("remove dayz path");
         fs::remove_dir_all(&workshop_path).expect("remove workshop path");
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn offline_launch_defers_spawn_mutation_until_common_prereqs_pass() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-offline-order-bin");
+        setup_launch_bin(&bin_dir, false);
+        let path_env = prepend_path(&bin_dir);
+        let dayz_path = temp_path("app-offline-order-dayz");
+        let mission_id = "DayZCommunityOfflineMode.ChernarusPlus".to_string();
+        let mission_dir = dayz_path.join("Missions").join(&mission_id).join("core");
+        fs::create_dir_all(&mission_dir).expect("create offline mission dir");
+        let client_file = mission_dir.join("CommunityOfflineClient.c");
+        fs::write(&client_file, "bool HIVE_ENABLED = false;\n").expect("write offline mission file");
+
+        let mut app = test_app();
+        app.dayz_path = Some(dayz_path.clone());
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::Offline {
+                mission_id: mission_id.clone(),
+            },
+            mod_ids: vec![1564026768],
+            password: None,
+            offline_spawn_enabled: Some(true),
+        });
+        app.skip_running_check_once = true;
+
+        app.process_action(Action::LaunchGame);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Cannot manage server mods: Steam library path not detected")
+        );
+        assert!(app.launch_prep.is_some());
+        assert_eq!(
+            fs::read_to_string(&client_file).expect("read mission file"),
+            "bool HIVE_ENABLED = false;\n"
+        );
+
+        drop(path_env);
+        fs::remove_dir_all(dayz_path).expect("remove dayz path");
         fs::remove_dir_all(bin_dir).expect("remove bin dir");
     }
 

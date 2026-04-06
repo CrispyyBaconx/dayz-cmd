@@ -1,5 +1,5 @@
 use crate::server::Server;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -107,6 +107,13 @@ pub fn apply_offline_spawn_setting(
     } else {
         content.replace("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
     };
+
+    if updated == content {
+        bail!(
+            "offline mission spawn toggle marker not found in {}",
+            client_file.display()
+        );
+    }
 
     fs::write(&client_file, updated).with_context(|| {
         format!(
@@ -347,6 +354,32 @@ mod tests {
 
         let content = fs::read_to_string(&client_file).expect("read client file");
         assert!(content.contains("HIVE_ENABLED = true"));
+
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn offline_spawn_setting_errors_when_marker_is_missing() {
+        let root = temp_path("offline-spawn-missing-marker");
+        let client_file = root
+            .join("Missions")
+            .join("DayZCommunityOfflineMode.ChernarusPlus")
+            .join("core")
+            .join("CommunityOfflineClient.c");
+        fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
+        fs::write(&client_file, "bool SOME_OTHER_FLAG = false;\n").expect("write client file");
+
+        let err = apply_offline_spawn_setting(
+            &root,
+            "DayZCommunityOfflineMode.ChernarusPlus",
+            Some(true),
+        )
+        .expect_err("marker mismatch should fail");
+
+        assert!(
+            err.to_string()
+                .contains("offline mission spawn toggle marker not found")
+        );
 
         fs::remove_dir_all(root).expect("remove temp root");
     }
