@@ -198,6 +198,10 @@ pub fn get_missing_mods(mods_db: &ModsDb, required_ids: &[u64]) -> Vec<u64> {
         .collect()
 }
 
+pub fn get_installed_workshop_ids(mods_db: &ModsDb) -> Vec<u64> {
+    mods_db.mods.iter().map(|mod_info| mod_info.id).collect()
+}
+
 pub fn find_workshop_path(steam_root: &Path) -> PathBuf {
     steam_root.join("workshop").join("content").join("221100")
 }
@@ -277,5 +281,28 @@ mod tests {
         assert!(!dayz_path.join("@123456").exists());
 
         fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn derives_installed_workshop_ids_from_mods_db() {
+        let db = ModsDb {
+            sum: "abc".into(),
+            mods: vec![
+                ModInfo {
+                    name: "First".into(),
+                    id: 111,
+                    timestamp: 0,
+                    size: 0,
+                },
+                ModInfo {
+                    name: "Second".into(),
+                    id: 222,
+                    timestamp: 0,
+                    size: 0,
+                },
+            ],
+        };
+
+        assert_eq!(get_installed_workshop_ids(&db), vec![111, 222]);
     }
 }

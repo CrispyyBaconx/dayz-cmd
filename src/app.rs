@@ -33,6 +33,43 @@ struct PendingLaunch {
     pending_mod_ids: Vec<u64>,
     history_entry: Option<(String, String, u16)>,
     offline_update: Option<(String, Option<bool>)>,
+    kind: PendingDownloadKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PendingDownloadKind {
+    Launch,
+    RefreshInstalledMods,
+}
+
+trait WorkshopDownloadClient {
+    fn ensure_mods_downloaded(
+        &self,
+        workshop_ids: &[u64],
+        force_update: bool,
+    ) -> anyhow::Result<Vec<u64>>;
+
+    fn get_item_state(&self, workshop_id: u64) -> ItemState;
+
+    fn get_download_progress(&self, workshop_id: u64) -> Option<(u64, u64)>;
+}
+
+impl WorkshopDownloadClient for SteamHandle {
+    fn ensure_mods_downloaded(
+        &self,
+        workshop_ids: &[u64],
+        force_update: bool,
+    ) -> anyhow::Result<Vec<u64>> {
+        SteamHandle::ensure_mods_downloaded(self, workshop_ids, force_update)
+    }
+
+    fn get_item_state(&self, workshop_id: u64) -> ItemState {
+        SteamHandle::get_item_state(self, workshop_id)
+    }
+
+    fn get_download_progress(&self, workshop_id: u64) -> Option<(u64, u64)> {
+        SteamHandle::get_download_progress(self, workshop_id)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -368,6 +405,9 @@ impl App {
             Action::CheckForUpdates => {
                 self.check_for_updates_manually();
             }
+            Action::RefreshInstalledMods => {
+                self.refresh_installed_mods();
+            }
         }
     }
 
@@ -538,6 +578,7 @@ impl App {
                         pending_mod_ids,
                         history_entry,
                         offline_update,
+                        kind: PendingDownloadKind::Launch,
                     });
                     self.asked_update_mods = false;
                     self.update_mods_before_launch = false;
@@ -618,11 +659,190 @@ impl App {
         }
     }
 
+    fn refresh_installed_mods(&mut self) {
+        let Some(steam) = self.steam.as_ref().map(|steam| steam as *const dyn WorkshopDownloadClient) else {
+            self.status_message = None;
+            return;
+        };
+
+        // SAFETY: the raw pointer is derived from `self.steam` and only read
+        // through this call; we do not mutate or move `self.steam` here.
+        let steam = unsafe { &*steam };
+        self.refresh_installed_mods_with(steam);
+    }
+
+    fn refresh_installed_mods_with(&mut self, steam: &dyn WorkshopDownloadClient) {
+        let workshop_ids = crate::mods::get_installed_workshop_ids(&self.mods_db);
+        if workshop_ids.is_empty() {
+            self.pending_launch = None;
+            self.status_message = None;
+            return;
+        }
+
+        let Some(workshop_path) = self.workshop_path.clone() else {
+            self.status_message = Some("Steam library path not detected".into());
+            return;
+        };
+
+        self.status_message = Some(
+            "DayZ game itself updates through Steam; refreshing installed workshop mods..."
+                .into(),
+        );
+
+        match steam.ensure_mods_downloaded(&workshop_ids, true) {
+            Ok(pending_mod_ids) if !pending_mod_ids.is_empty() => {
+                let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
+                self.status_message = Some(format!(
+                    "DayZ game itself updates through Steam; {}",
+                    download_status_message(&statuses)
+                ));
+                self.pending_launch = Some(PendingLaunch {
+                    args: Vec::new(),
+                    all_mod_ids: workshop_ids,
+                    pending_mod_ids,
+                    history_entry: None,
+                    offline_update: None,
+                    kind: PendingDownloadKind::RefreshInstalledMods,
+                });
+            }
+            Ok(_) => match self.rescan_and_save_mods_db(&workshop_path) {
+                Ok(()) => {
+                    self.status_message = Some(
+                        "DayZ game itself updates through Steam; installed workshop mods refreshed"
+                            .into(),
+                    );
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to refresh installed mods: {e}"));
+                }
+            },
+            Err(e) => {
+                self.status_message = Some(format!("Failed to queue workshop downloads: {e}"));
+            }
+        }
+    }
+
     fn ensure_symlinks(&mut self, mod_ids: &[u64]) -> anyhow::Result<()> {
         if let (Some(dp), Some(wp)) = (&self.dayz_path, &self.workshop_path) {
             crate::mods::ensure_mod_symlinks(dp, wp, mod_ids)?;
         }
         Ok(())
+    }
+
+    fn rescan_and_save_mods_db(&mut self, workshop_path: &PathBuf) -> anyhow::Result<()> {
+        let db = crate::mods::scan_installed_mods(workshop_path.as_path())?;
+        let _ = crate::mods::save_mods_db(&self.config.mods_db_path, &db);
+        self.mods_db = db;
+        Ok(())
+    }
+
+    fn advance_pending_downloads(&mut self, steam: Option<&dyn WorkshopDownloadClient>) {
+        let Some(pending) = self.pending_launch.take() else {
+            return;
+        };
+
+        let PendingLaunch {
+            args,
+            all_mod_ids,
+            pending_mod_ids,
+            history_entry,
+            offline_update,
+            kind,
+        } = pending;
+
+        if !pending_mod_ids.is_empty() {
+            let Some(steam) = steam else {
+                self.status_message = Some(match kind {
+                    PendingDownloadKind::Launch => {
+                        "Waiting for Steam to resume workshop downloads".into()
+                    }
+                    PendingDownloadKind::RefreshInstalledMods => {
+                        "DayZ game itself updates through Steam; waiting for Steam to resume workshop downloads"
+                            .into()
+                    }
+                });
+                self.pending_launch = Some(PendingLaunch {
+                    args,
+                    all_mod_ids,
+                    pending_mod_ids,
+                    history_entry,
+                    offline_update,
+                    kind,
+                });
+                return;
+            };
+
+            let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
+            if !downloads_ready(&statuses) {
+                self.status_message = Some(match kind {
+                    PendingDownloadKind::Launch => download_status_message(&statuses),
+                    PendingDownloadKind::RefreshInstalledMods => format!(
+                        "DayZ game itself updates through Steam; {}",
+                        download_status_message(&statuses)
+                    ),
+                });
+                self.pending_launch = Some(PendingLaunch {
+                    args,
+                    all_mod_ids,
+                    pending_mod_ids,
+                    history_entry,
+                    offline_update,
+                    kind,
+                });
+                return;
+            }
+        }
+
+        match kind {
+            PendingDownloadKind::Launch => {
+                if let Err(e) = self.ensure_symlinks(&all_mod_ids) {
+                    self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
+                    return;
+                }
+
+                if let Some((mission_id, spawn_enabled)) = offline_update {
+                    let Some(dayz_path) = self.dayz_path.as_ref() else {
+                        self.status_message =
+                            Some("Cannot launch offline: DayZ path not detected".into());
+                        return;
+                    };
+
+                    if let Err(e) = crate::launch::apply_offline_spawn_setting(
+                        dayz_path,
+                        &mission_id,
+                        spawn_enabled,
+                    ) {
+                        self.status_message =
+                            Some(format!("Failed to update offline spawn setting: {e}"));
+                        return;
+                    }
+                }
+
+                self.asked_update_mods = false;
+                self.update_mods_before_launch = false;
+                self.finish_launch(args, history_entry);
+            }
+            PendingDownloadKind::RefreshInstalledMods => {
+                let Some(workshop_path) = self.workshop_path.clone() else {
+                    self.status_message = Some("Steam library path not detected".into());
+                    return;
+                };
+
+                if let Err(e) = self.rescan_and_save_mods_db(&workshop_path) {
+                    self.status_message = Some(format!("Failed to refresh installed mods: {e}"));
+                    return;
+                }
+
+                self.status_message = Some(format!(
+                    "DayZ game itself updates through Steam; refreshed {} installed workshop mods",
+                    all_mod_ids.len()
+                ));
+            }
+        }
+    }
+
+    fn continue_pending_downloads_with(&mut self, steam: &dyn WorkshopDownloadClient) {
+        self.advance_pending_downloads(Some(steam));
     }
 
     pub fn ensure_server_runtime_info(&mut self, ip: &str) {
@@ -642,71 +862,17 @@ impl App {
             Action::None
         };
         self.process_action(action);
-
-        let Some(pending) = self.pending_launch.take() else {
-            return;
-        };
-
-        let PendingLaunch {
-            args,
-            all_mod_ids,
-            pending_mod_ids,
-            history_entry,
-            offline_update,
-        } = pending;
-
-        if !pending_mod_ids.is_empty() {
-            let Some(steam) = self.steam.as_ref() else {
-                self.status_message = Some("Waiting for Steam to resume workshop downloads".into());
-                self.pending_launch = Some(PendingLaunch {
-                    args,
-                    all_mod_ids,
-                    pending_mod_ids,
-                    history_entry,
-                    offline_update,
-                });
-                return;
-            };
-
-            let statuses = collect_pending_download_statuses(steam, &pending_mod_ids);
-            if !downloads_ready(&statuses) {
-                self.status_message = Some(download_status_message(&statuses));
-                self.pending_launch = Some(PendingLaunch {
-                    args,
-                    all_mod_ids,
-                    pending_mod_ids,
-                    history_entry,
-                    offline_update,
-                });
-                return;
-            }
-        }
-
-        if let Err(e) = self.ensure_symlinks(&all_mod_ids) {
-            self.status_message = Some(format!("Failed to create mod symlinks: {e}"));
-            return;
-        }
-
-        if let Some((mission_id, spawn_enabled)) = offline_update {
-            let Some(dayz_path) = self.dayz_path.as_ref() else {
-                self.status_message = Some("Cannot launch offline: DayZ path not detected".into());
-                return;
-            };
-
-            if let Err(e) =
-                crate::launch::apply_offline_spawn_setting(dayz_path, &mission_id, spawn_enabled)
-            {
-                self.status_message = Some(format!("Failed to update offline spawn setting: {e}"));
-                return;
-            }
-        }
-
-        self.finish_launch(args, history_entry);
+        let steam = self
+            .steam
+            .as_ref()
+            .map(|steam| steam as *const dyn WorkshopDownloadClient);
+        let steam = steam.map(|steam| unsafe { &*steam });
+        self.advance_pending_downloads(steam);
     }
 }
 
 fn collect_pending_download_statuses(
-    steam: &SteamHandle,
+    steam: &dyn WorkshopDownloadClient,
     workshop_ids: &[u64],
 ) -> Vec<PendingDownloadStatus> {
     workshop_ids
@@ -773,6 +939,8 @@ mod tests {
     use crate::server::Server;
     use crate::server::types::{ServerEndpoint, ServerMod};
     use crate::steam::ItemState;
+    use std::collections::HashMap;
+    use std::cell::RefCell;
     use std::ffi::OsString;
     use std::fs;
     use std::io::Read;
@@ -845,6 +1013,59 @@ mod tests {
                 })
                 .collect(),
             ..sample_server(password)
+        }
+    }
+
+    struct FakeSteam {
+        queued: RefCell<Vec<(Vec<u64>, bool)>>,
+        states: RefCell<HashMap<u64, ItemState>>,
+        progress: RefCell<HashMap<u64, Option<(u64, u64)>>>,
+    }
+
+    impl FakeSteam {
+        fn new() -> Self {
+            Self {
+                queued: RefCell::new(Vec::new()),
+                states: RefCell::new(HashMap::new()),
+                progress: RefCell::new(HashMap::new()),
+            }
+        }
+
+        fn with_state(&self, workshop_id: u64, state: ItemState) {
+            self.states.borrow_mut().insert(workshop_id, state);
+        }
+
+        fn queued_calls(&self) -> Vec<(Vec<u64>, bool)> {
+            self.queued.borrow().clone()
+        }
+    }
+
+    impl WorkshopDownloadClient for FakeSteam {
+        fn ensure_mods_downloaded(
+            &self,
+            workshop_ids: &[u64],
+            force_update: bool,
+        ) -> anyhow::Result<Vec<u64>> {
+            self.queued
+                .borrow_mut()
+                .push((workshop_ids.to_vec(), force_update));
+            Ok(workshop_ids.to_vec())
+        }
+
+        fn get_item_state(&self, workshop_id: u64) -> ItemState {
+            self.states
+                .borrow()
+                .get(&workshop_id)
+                .cloned()
+                .unwrap_or(ItemState::NotInstalled)
+        }
+
+        fn get_download_progress(&self, workshop_id: u64) -> Option<(u64, u64)> {
+            self.progress
+                .borrow()
+                .get(&workshop_id)
+                .cloned()
+                .unwrap_or(None)
         }
     }
 
@@ -998,6 +1219,133 @@ mod tests {
                 progress: Some((10, 100)),
             },
         ]));
+    }
+
+    #[test]
+    fn refresh_installed_mods_queues_every_installed_workshop_id_with_force_update() {
+        let mut app = test_app();
+        let workshop_path = temp_path("app-refresh-workshop");
+        fs::create_dir_all(&workshop_path).expect("create workshop path");
+        app.workshop_path = Some(workshop_path.clone());
+        app.mods_db = ModsDb {
+            sum: "abc".into(),
+            mods: vec![
+                crate::mods::ModInfo {
+                    name: "Mod 101".into(),
+                    id: 101,
+                    timestamp: 0,
+                    size: 0,
+                },
+                crate::mods::ModInfo {
+                    name: "Mod 202".into(),
+                    id: 202,
+                    timestamp: 0,
+                    size: 0,
+                },
+            ],
+        };
+
+        let steam = FakeSteam::new();
+        steam.with_state(101, ItemState::Installed);
+        steam.with_state(202, ItemState::Installed);
+
+        app.refresh_installed_mods_with(&steam);
+
+        assert_eq!(steam.queued_calls(), vec![(vec![101, 202], true)]);
+        assert!(app.pending_launch.is_some());
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("DayZ game itself updates through Steam")
+        );
+
+        fs::remove_dir_all(workshop_path).expect("remove workshop path");
+    }
+
+    #[test]
+    fn refresh_installed_mods_clears_status_when_mods_db_is_empty() {
+        let mut app = test_app();
+        app.status_message = Some("stale".into());
+
+        let steam = FakeSteam::new();
+        app.refresh_installed_mods_with(&steam);
+
+        assert!(app.status_message.is_none());
+        assert!(steam.queued_calls().is_empty());
+        assert!(app.pending_launch.is_none());
+    }
+
+    #[test]
+    fn refresh_installed_mods_clears_status_when_steam_is_missing() {
+        let mut app = test_app();
+        app.mods_db = ModsDb {
+            sum: "abc".into(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 303".into(),
+                id: 303,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.status_message = Some("stale".into());
+
+        app.refresh_installed_mods();
+
+        assert!(app.status_message.is_none());
+        assert!(app.pending_launch.is_none());
+    }
+
+    #[test]
+    fn pending_refresh_rescans_and_saves_mods_db_after_downloads_finish() {
+        let mut app = test_app();
+        let data_dir = temp_path("app-refresh-complete");
+        let workshop_path = data_dir.join("workshop");
+        let mods_db_path = data_dir.join("mods.json");
+        fs::create_dir_all(workshop_path.join("404")).expect("create workshop mod path");
+        fs::write(
+            workshop_path.join("404").join("meta.cpp"),
+            "name = \"Refreshed Mod\";\npublishedid = 404;\ntimestamp = 7;\n",
+        )
+        .expect("write mod metadata");
+        app.config.mods_db_path = mods_db_path.clone();
+        app.workshop_path = Some(workshop_path.clone());
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Old Mod".into(),
+                id: 1,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.pending_launch = Some(PendingLaunch {
+            args: Vec::new(),
+            all_mod_ids: vec![404],
+            pending_mod_ids: vec![404],
+            history_entry: None,
+            offline_update: None,
+            kind: PendingDownloadKind::RefreshInstalledMods,
+        });
+
+        let steam = FakeSteam::new();
+        steam.with_state(404, ItemState::Installed);
+
+        app.continue_pending_downloads_with(&steam);
+
+        assert!(app.pending_launch.is_none());
+        assert_eq!(app.mods_db.mods.len(), 1);
+        assert_eq!(app.mods_db.mods[0].id, 404);
+        let saved = fs::read_to_string(&mods_db_path).expect("read saved mods db");
+        assert!(saved.contains("\"id\": 404"));
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("DayZ game itself updates through Steam")
+        );
+
+        fs::remove_dir_all(data_dir).expect("remove temp data dir");
     }
 
     #[test]
@@ -1304,6 +1652,7 @@ mod tests {
             pending_mod_ids: Vec::new(),
             history_entry: None,
             offline_update: Some((mission_id.clone(), Some(true))),
+            kind: PendingDownloadKind::Launch,
         });
 
         app.tick();

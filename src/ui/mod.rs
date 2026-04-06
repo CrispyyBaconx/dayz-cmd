@@ -27,6 +27,7 @@ pub enum Action {
     LaunchGame,
     RunSelfUpdate,
     CheckForUpdates,
+    RefreshInstalledMods,
 }
 
 #[derive(Debug, Clone, PartialEq)]
