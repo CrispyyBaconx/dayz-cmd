@@ -681,11 +681,15 @@ impl App {
         };
 
         let workshop_ids = crate::mods::get_installed_workshop_ids(&db);
-        let _ = crate::mods::save_mods_db(&self.config.mods_db_path, &db);
+        if let Err(e) = crate::mods::save_mods_db(&self.config.mods_db_path, &db) {
+            self.status_message = Some(format!("Failed to refresh installed mods: {e}"));
+            return;
+        }
         self.mods_db = db;
 
         let Some(steam) = self.steam.as_ref() else {
-            self.status_message = None;
+            self.status_message =
+                Some("Steam client not available; installed workshop mods refreshed locally".into());
             return;
         };
 
@@ -758,7 +762,10 @@ impl App {
         };
 
         let workshop_ids = crate::mods::get_installed_workshop_ids(&db);
-        let _ = crate::mods::save_mods_db(&self.config.mods_db_path, &db);
+        if let Err(e) = crate::mods::save_mods_db(&self.config.mods_db_path, &db) {
+            self.status_message = Some(format!("Failed to refresh installed mods: {e}"));
+            return;
+        }
         self.mods_db = db;
 
         if workshop_ids.is_empty() {
@@ -811,7 +818,7 @@ impl App {
 
     fn rescan_and_save_mods_db(&mut self, workshop_path: &PathBuf) -> anyhow::Result<()> {
         let db = crate::mods::scan_installed_mods(workshop_path.as_path())?;
-        let _ = crate::mods::save_mods_db(&self.config.mods_db_path, &db);
+        crate::mods::save_mods_db(&self.config.mods_db_path, &db)?;
         self.mods_db = db;
         Ok(())
     }
@@ -1440,6 +1447,38 @@ mod tests {
     }
 
     #[test]
+    fn refresh_installed_mods_reports_save_failure_instead_of_success() {
+        let mut app = test_app();
+        let data_dir = temp_path("app-refresh-save-failure");
+        let workshop_path = data_dir.join("workshop");
+        let mods_db_path = data_dir.join("mods.json");
+        fs::create_dir_all(workshop_path.join("404")).expect("create workshop mod path");
+        fs::write(
+            workshop_path.join("404").join("meta.cpp"),
+            "name = \"Fresh Mod\";\npublishedid = 404;\ntimestamp = 7;\n",
+        )
+        .expect("write mod metadata");
+        fs::create_dir_all(&mods_db_path).expect("create conflicting mods db directory");
+        app.config.mods_db_path = mods_db_path;
+        app.workshop_path = Some(workshop_path.clone());
+
+        let steam = FakeSteam::new();
+        steam.with_state(404, ItemState::Installed);
+
+        app.refresh_installed_mods_with(&steam);
+
+        assert!(steam.queued_calls().is_empty());
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Failed to refresh installed mods")
+        );
+
+        fs::remove_dir_all(data_dir).expect("remove temp data dir");
+    }
+
+    #[test]
     fn refresh_installed_mods_does_not_overwrite_an_existing_pending_launch() {
         let mut app = test_app();
         app.pending_launch = Some(PendingLaunch {
@@ -1467,8 +1506,19 @@ mod tests {
     }
 
     #[test]
-    fn refresh_installed_mods_clears_status_when_steam_is_missing() {
+    fn refresh_installed_mods_shows_status_when_steam_is_missing() {
         let mut app = test_app();
+        let data_dir = temp_path("app-refresh-no-steam");
+        let workshop_path = data_dir.join("workshop");
+        let mods_db_path = data_dir.join("mods.json");
+        fs::create_dir_all(workshop_path.join("303")).expect("create workshop mod path");
+        fs::write(
+            workshop_path.join("303").join("meta.cpp"),
+            "name = \"Mod 303\";\npublishedid = 303;\ntimestamp = 0;\n",
+        )
+        .expect("write mod metadata");
+        app.config.mods_db_path = mods_db_path;
+        app.workshop_path = Some(workshop_path);
         app.mods_db = ModsDb {
             sum: "abc".into(),
             mods: vec![crate::mods::ModInfo {
@@ -1483,6 +1533,14 @@ mod tests {
         app.refresh_installed_mods();
 
         assert!(app.pending_launch.is_none());
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Steam client not available")
+        );
+
+        fs::remove_dir_all(data_dir).expect("remove temp data dir");
     }
 
     #[test]
@@ -1532,6 +1590,46 @@ mod tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("DayZ game itself updates through Steam")
+        );
+
+        fs::remove_dir_all(data_dir).expect("remove temp data dir");
+    }
+
+    #[test]
+    fn pending_refresh_reports_save_failure_instead_of_success() {
+        let mut app = test_app();
+        let data_dir = temp_path("app-refresh-complete-failure");
+        let workshop_path = data_dir.join("workshop");
+        let mods_db_path = data_dir.join("mods.json");
+        fs::create_dir_all(workshop_path.join("404")).expect("create workshop mod path");
+        fs::write(
+            workshop_path.join("404").join("meta.cpp"),
+            "name = \"Refreshed Mod\";\npublishedid = 404;\ntimestamp = 7;\n",
+        )
+        .expect("write mod metadata");
+        fs::create_dir_all(&mods_db_path).expect("create conflicting mods db directory");
+        app.config.mods_db_path = mods_db_path;
+        app.workshop_path = Some(workshop_path.clone());
+        app.pending_launch = Some(PendingLaunch {
+            args: Vec::new(),
+            all_mod_ids: vec![404],
+            pending_mod_ids: vec![404],
+            history_entry: None,
+            offline_update: None,
+            kind: PendingDownloadKind::RefreshInstalledMods,
+        });
+
+        let steam = FakeSteam::new();
+        steam.with_state(404, ItemState::Installed);
+
+        app.continue_pending_downloads_with(&steam);
+
+        assert!(app.pending_launch.is_none());
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Failed to refresh installed mods")
         );
 
         fs::remove_dir_all(data_dir).expect("remove temp data dir");
