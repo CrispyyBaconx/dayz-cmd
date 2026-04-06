@@ -18,6 +18,7 @@ enum DetailAction {
     Play,
     AddFavorite,
     RemoveFavorite,
+    OpenBattleMetrics,
     CreateDesktopEntry,
     UpdateDesktopEntry,
     DeleteDesktopEntry,
@@ -45,6 +46,8 @@ impl ServerDetailScreen {
                 items.push(DetailAction::AddFavorite);
             }
 
+            items.push(DetailAction::OpenBattleMetrics);
+
             if app.config.applications_dir.exists() {
                 if crate::launch::desktop_entry_exists(
                     &app.config.applications_dir,
@@ -67,6 +70,7 @@ impl ServerDetailScreen {
             DetailAction::Play => "Play",
             DetailAction::AddFavorite => "Add to Favorites",
             DetailAction::RemoveFavorite => "Remove from Favorites",
+            DetailAction::OpenBattleMetrics => "Open BattleMetrics",
             DetailAction::CreateDesktopEntry => "Create Desktop Entry",
             DetailAction::UpdateDesktopEntry => "Update Desktop Entry",
             DetailAction::DeleteDesktopEntry => "Delete Desktop Entry",
@@ -143,6 +147,26 @@ impl ServerDetailScreen {
                 app.status_message =
                     Some(format!("Removed '{}' from favorites", server.name));
                 Action::PopScreen
+            }
+            DetailAction::OpenBattleMetrics => {
+                match crate::api::battlemetrics::get_battlemetrics_url(
+                    &server.endpoint.ip,
+                    server.endpoint.port,
+                    &server.name,
+                    app.config.request_timeout,
+                ) {
+                    Ok(Some(url)) => {
+                        let _ = open::that(url);
+                        app.status_message = Some("Opened BattleMetrics".into());
+                    }
+                    Ok(None) => {
+                        app.status_message = Some("BattleMetrics entry not found".into());
+                    }
+                    Err(e) => {
+                        app.status_message = Some(format!("BattleMetrics lookup failed: {e}"));
+                    }
+                }
+                Action::None
             }
             DetailAction::CreateDesktopEntry | DetailAction::UpdateDesktopEntry => {
                 let exe = std::env::current_exe()
@@ -234,4 +258,78 @@ fn info_line<'a>(label: &'a str, value: &'a str) -> Line<'a> {
         Span::styled(format!(" {label}: "), theme::DIM),
         Span::styled(value, theme::NORMAL),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::mods::ModsDb;
+    use crate::profile::Profile;
+    use crate::server::types::{Server, ServerEndpoint};
+    use std::path::PathBuf;
+
+    fn test_app() -> App {
+        let data_dir = std::env::temp_dir().join("dayz-ctl-tests-server-detail");
+        let mut app = App::new(
+            Config {
+                path: data_dir.join("dayz-ctl.conf"),
+                data_dir: data_dir.clone(),
+                server_db_path: data_dir.join("servers.json"),
+                news_db_path: data_dir.join("news.json"),
+                mods_db_path: data_dir.join("mods.json"),
+                profile_path: data_dir.join("profile.json"),
+                api_url: "https://example.test".into(),
+                request_timeout: 10,
+                server_request_timeout: 30,
+                server_db_ttl: 300,
+                news_db_ttl: 3600,
+                history_size: 10,
+                steamcmd_enabled: true,
+                filter_mod_limit: 10,
+                filter_players_limit: 50,
+                filter_players_slots: 60,
+                applications_dir: PathBuf::from("/tmp"),
+            },
+            Profile::default(),
+        );
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: Vec::new(),
+        };
+        app.servers.push(Server {
+            name: "Test Server".into(),
+            players: 12,
+            max_players: 60,
+            time: "12:00".into(),
+            time_acceleration: Some(4.0),
+            map: "chernarusplus".into(),
+            password: false,
+            battleye: true,
+            vac: true,
+            first_person_only: false,
+            shard: "public".into(),
+            version: "1.0".into(),
+            environment: "w".into(),
+            game_port: 2302,
+            endpoint: ServerEndpoint {
+                ip: "1.2.3.4".into(),
+                port: 27016,
+            },
+            mods: Vec::new(),
+        });
+        app
+    }
+
+    #[test]
+    fn server_detail_exposes_battlemetrics_action() {
+        let app = test_app();
+        let mut screen = ServerDetailScreen::new(0);
+        screen.build_items(&app);
+
+        assert!(screen
+            .items
+            .iter()
+            .any(|item| matches!(item, DetailAction::OpenBattleMetrics)));
+    }
 }
