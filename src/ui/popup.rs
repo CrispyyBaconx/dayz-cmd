@@ -116,11 +116,7 @@ impl Screen for ConfirmScreen {
 }
 
 fn choice_span(label: &str, selected: bool) -> Span<'static> {
-    let text = if selected {
-        format!("[ {label} ]")
-    } else {
-        format!("  {label}  ")
-    };
+    let text = format!("[ {label} ]");
     let style = if selected {
         theme::WARNING.add_modifier(Modifier::BOLD)
     } else {
@@ -616,6 +612,37 @@ mod tests {
             " "
         );
         assert!(lines.iter().any(|line| line.contains("[ Update ]")));
-        assert!(lines.iter().any(|line| line.contains("  Skip  ")));
+        assert!(lines.iter().any(|line| line.contains("[ Skip ]")));
+    }
+
+    #[test]
+    fn confirm_choice_row_does_not_shift_when_selection_changes() {
+        let app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        let mut selected_update = ConfirmScreen::new(ConfirmAction::UpdateModsBeforeLaunch);
+        selected_update.selected = true;
+        let mut selected_skip = ConfirmScreen::new(ConfirmAction::UpdateModsBeforeLaunch);
+        selected_skip.selected = false;
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("create terminal");
+        terminal
+            .draw(|frame| selected_update.render(frame, &app))
+            .expect("render update-selected state");
+        let update_lines = buffer_lines(terminal.backend());
+        let update_row = update_lines
+            .iter()
+            .find(|line| line.contains("Update") && line.contains("Skip"))
+            .expect("find choice row for update-selected state");
+
+        terminal
+            .draw(|frame| selected_skip.render(frame, &app))
+            .expect("render skip-selected state");
+        let skip_lines = buffer_lines(terminal.backend());
+        let skip_row = skip_lines
+            .iter()
+            .find(|line| line.contains("Update") && line.contains("Skip"))
+            .expect("find choice row for skip-selected state");
+
+        assert_eq!(update_row.find("Update"), skip_row.find("Update"));
+        assert_eq!(update_row.find("Skip"), skip_row.find("Skip"));
     }
 }
