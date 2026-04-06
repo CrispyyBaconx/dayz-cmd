@@ -406,11 +406,8 @@ impl App {
                 self.check_for_updates_manually();
             }
             Action::RefreshInstalledMods => {
-                if self.pending_launch.is_some() {
-                    self.status_message = Some(
-                        "Cannot refresh installed mods while a launch download is pending"
-                            .into(),
-                    );
+                if let Some(pending) = self.pending_launch.as_ref() {
+                    self.status_message = Some(refresh_busy_message(&pending.kind).into());
                     return;
                 }
                 self.refresh_installed_mods();
@@ -741,10 +738,8 @@ impl App {
     }
 
     fn refresh_installed_mods_with(&mut self, steam: &dyn WorkshopDownloadClient) {
-        if self.pending_launch.is_some() {
-            self.status_message = Some(
-                "Cannot refresh installed mods while a launch download is pending".into(),
-            );
+        if let Some(pending) = self.pending_launch.as_ref() {
+            self.status_message = Some(refresh_busy_message(&pending.kind).into());
             return;
         }
 
@@ -1003,6 +998,17 @@ impl App {
         };
         self.process_action(action);
         self.advance_pending_downloads();
+    }
+}
+
+fn refresh_busy_message(kind: &PendingDownloadKind) -> &'static str {
+    match kind {
+        PendingDownloadKind::Launch => {
+            "Cannot refresh installed mods while a launch download is pending"
+        }
+        PendingDownloadKind::RefreshInstalledMods => {
+            "Cannot refresh installed mods while another refresh is already pending"
+        }
     }
 }
 
@@ -1502,6 +1508,33 @@ mod tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("launch download is pending")
+        );
+    }
+
+    #[test]
+    fn refresh_installed_mods_reports_when_a_refresh_is_already_pending() {
+        let mut app = test_app();
+        app.pending_launch = Some(PendingLaunch {
+            args: Vec::new(),
+            all_mod_ids: vec![22],
+            pending_mod_ids: vec![22],
+            history_entry: None,
+            offline_update: None,
+            kind: PendingDownloadKind::RefreshInstalledMods,
+        });
+
+        let steam = FakeSteam::new();
+        app.refresh_installed_mods_with(&steam);
+
+        let pending = app.pending_launch.as_ref().expect("pending refresh remains");
+        assert_eq!(pending.kind, PendingDownloadKind::RefreshInstalledMods);
+        assert_eq!(pending.pending_mod_ids, vec![22]);
+        assert!(steam.queued_calls().is_empty());
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("refresh is already pending")
         );
     }
 
