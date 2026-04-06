@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
-use ratatui::Frame;
 
-use super::{theme, Action, Screen};
+use super::{Action, Screen, theme};
 use crate::app::App;
 
 const UPDATE_PROMPT_TICKS: u16 = 20;

@@ -36,12 +36,14 @@ impl SteamHandle {
         let client = Arc::new(Mutex::new(client));
         let pump_client = Arc::clone(&client);
 
-        let _pump_thread = thread::spawn(move || loop {
-            {
-                let c = pump_client.lock().unwrap();
-                c.run_callbacks();
+        let _pump_thread = thread::spawn(move || {
+            loop {
+                {
+                    let c = pump_client.lock().unwrap();
+                    c.run_callbacks();
+                }
+                thread::sleep(std::time::Duration::from_millis(50));
             }
-            thread::sleep(std::time::Duration::from_millis(50));
         });
 
         Ok(SteamHandle {

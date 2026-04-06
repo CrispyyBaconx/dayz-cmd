@@ -303,9 +303,10 @@ mod tests {
     fn existing_mission_identity_requires_a_real_source_path() {
         let err = mission_identity_key(MissionSource::Existing, "CommunityOfflineClient", None)
             .expect_err("missing source path");
-        assert!(err
-            .to_string()
-            .contains("existing mission identity requires a source path"));
+        assert!(
+            err.to_string()
+                .contains("existing mission identity requires a source path")
+        );
     }
 
     #[test]
@@ -315,9 +316,10 @@ mod tests {
 
         let err = mission_identity_key(MissionSource::Existing, "MissingMission", Some(&missing))
             .expect_err("missing path");
-        assert!(err
-            .to_string()
-            .contains("existing mission identity requires a source path"));
+        assert!(
+            err.to_string()
+                .contains("existing mission identity requires a source path")
+        );
     }
 
     #[test]
@@ -398,9 +400,13 @@ mod tests {
 
         promote_release(&config, "v2.0.0", &staging).expect("promote release");
 
-        assert!(release_dir_for_tag(&config, "v2.0.0")
-            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
-            .exists());
+        assert!(
+            release_dir_for_tag(&config, "v2.0.0")
+                .join(
+                    "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c"
+                )
+                .exists()
+        );
         assert_eq!(load_offline_state(&config).expect("load state"), state);
     }
 

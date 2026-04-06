@@ -125,15 +125,21 @@ mod tests {
             discover_offline_missions(&config, Some(&root.join("DayZ"))).expect("discover");
 
         assert_eq!(missions.len(), 3);
-        assert!(missions
-            .iter()
-            .any(|mission| mission.runtime_name == "Alpha"));
-        assert!(missions
-            .iter()
-            .any(|mission| mission.runtime_name == "Bravo"));
-        assert!(missions
-            .iter()
-            .any(|mission| mission.runtime_name == "Charlie"));
+        assert!(
+            missions
+                .iter()
+                .any(|mission| mission.runtime_name == "Alpha")
+        );
+        assert!(
+            missions
+                .iter()
+                .any(|mission| mission.runtime_name == "Bravo")
+        );
+        assert!(
+            missions
+                .iter()
+                .any(|mission| mission.runtime_name == "Charlie")
+        );
     }
 
     #[test]
@@ -164,12 +170,16 @@ mod tests {
         assert_eq!(shared.len(), 2);
         assert_ne!(shared[0].id, shared[1].id);
         assert_ne!(shared[0].name, shared[1].name);
-        assert!(shared
-            .iter()
-            .any(|mission| mission.name.contains("managed")));
-        assert!(shared
-            .iter()
-            .any(|mission| mission.name.contains("existing")));
+        assert!(
+            shared
+                .iter()
+                .any(|mission| mission.name.contains("managed"))
+        );
+        assert!(
+            shared
+                .iter()
+                .any(|mission| mission.name.contains("existing"))
+        );
     }
 
     fn install_managed_release(config: &Config, tag: &str, missions: &[&str]) {

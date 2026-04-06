@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
-use ratatui::Frame;
 
-use super::{theme, Action, ConfirmAction, Screen, ScreenId};
+use super::{Action, ConfirmAction, Screen, ScreenId, theme};
 use crate::app::App;
 
 pub struct ConfigScreen {

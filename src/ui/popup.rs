@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
-use ratatui::Frame;
 
-use super::{theme, Action, ConfirmAction, Screen};
+use super::{Action, ConfirmAction, Screen, theme};
 use crate::app::App;
 
 pub struct ConfirmScreen {

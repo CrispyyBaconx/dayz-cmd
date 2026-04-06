@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
-use ratatui::Frame;
 
-use super::{theme, Action, Screen};
+use super::{Action, Screen, theme};
 use crate::app::App;
 
 pub struct ServerDetailScreen {
@@ -344,9 +344,11 @@ mod tests {
         let mut screen = ServerDetailScreen::new(0);
         screen.build_items(&app);
 
-        assert!(screen
-            .items
-            .iter()
-            .any(|item| matches!(item, DetailAction::OpenBattleMetrics)));
+        assert!(
+            screen
+                .items
+                .iter()
+                .any(|item| matches!(item, DetailAction::OpenBattleMetrics))
+        );
     }
 }

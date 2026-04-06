@@ -1,9 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Frame;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
-use ratatui::Frame;
 
-use super::{theme, Action, Screen};
+use super::{Action, Screen, theme};
 use crate::app::App;
 
 pub struct NewsScreen {

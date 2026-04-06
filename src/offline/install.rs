@@ -172,9 +172,13 @@ mod tests {
 
         extract_release_tarball(&archive_path, &staging_dir).expect("extract archive");
 
-        assert!(staging_dir
-            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
-            .exists());
+        assert!(
+            staging_dir
+                .join(
+                    "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c"
+                )
+                .exists()
+        );
     }
 
     #[test]
@@ -217,9 +221,13 @@ mod tests {
                 .as_deref(),
             Some("v1.0.0")
         );
-        assert!(existing_release
-            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
-            .exists());
+        assert!(
+            existing_release
+                .join(
+                    "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c"
+                )
+                .exists()
+        );
     }
 
     #[test]
@@ -266,9 +274,13 @@ mod tests {
                 .as_deref(),
             Some("v1.0.0")
         );
-        assert!(existing_release
-            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
-            .exists());
+        assert!(
+            existing_release
+                .join(
+                    "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c"
+                )
+                .exists()
+        );
     }
 
     #[test]
@@ -286,9 +298,13 @@ mod tests {
             result.managed_missions,
             vec!["DayZCommunityOfflineMode.ChernarusPlus".to_string()]
         );
-        assert!(release_dir_for_tag(&config, "v1.0.0")
-            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
-            .exists());
+        assert!(
+            release_dir_for_tag(&config, "v1.0.0")
+                .join(
+                    "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c"
+                )
+                .exists()
+        );
     }
 
     fn start_tarball_server() -> String {
@@ -335,15 +351,14 @@ mod tests {
     }
 
     fn build_tarball(include_client_file: bool) -> Vec<u8> {
-        use flate2::write::GzEncoder;
         use flate2::Compression;
+        use flate2::write::GzEncoder;
         use tar::Builder;
 
         let mut tar_data = Vec::new();
         {
             let mut builder = Builder::new(&mut tar_data);
-            let mission_root =
-                "Arkensor-DayZCommunityOfflineMode-123/Missions/DayZCommunityOfflineMode.ChernarusPlus";
+            let mission_root = "Arkensor-DayZCommunityOfflineMode-123/Missions/DayZCommunityOfflineMode.ChernarusPlus";
             let mut dir_header = tar::Header::new_gnu();
             dir_header.set_entry_type(tar::EntryType::Directory);
             dir_header.set_mode(0o755);

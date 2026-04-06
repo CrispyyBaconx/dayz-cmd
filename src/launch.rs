@@ -140,8 +140,8 @@ pub fn desktop_entry_exists(applications_dir: &std::path::Path, ip: &str, game_p
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::types::ServerEndpoint;
     use crate::server::Server;
+    use crate::server::types::ServerEndpoint;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

@@ -1,11 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Frame;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
-use ratatui::Frame;
 
-use super::{theme, Action, Screen, ScreenId};
+use super::{Action, Screen, ScreenId, theme};
 use crate::app::App;
-use crate::server::filter::{apply_filters, ServerFilter};
+use crate::server::filter::{ServerFilter, apply_filters};
 
 pub struct FilterSelectScreen {
     pub list_state: ListState,
@@ -338,11 +338,7 @@ impl FilterSelectScreen {
 }
 
 fn display_value(value: &str) -> &str {
-    if value.is_empty() {
-        "-"
-    } else {
-        value
-    }
+    if value.is_empty() { "-" } else { value }
 }
 
 #[cfg(test)]

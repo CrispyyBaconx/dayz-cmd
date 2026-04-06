@@ -243,9 +243,11 @@ mod tests {
     fn updates_launch_option_value_and_launch_args() {
         let mut profile = Profile::default();
 
-        assert!(profile
-            .set_option_value("profiles", "/tmp/dayz-profile")
-            .is_some());
+        assert!(
+            profile
+                .set_option_value("profiles", "/tmp/dayz-profile")
+                .is_some()
+        );
         assert!(profile.toggle_option("profiles").is_some());
 
         let args = profile.get_launch_args();
