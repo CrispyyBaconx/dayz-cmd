@@ -1,0 +1,124 @@
+use anyhow::Result;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+pub const DAYZ_GAME_ID: u32 = 221100;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub path: PathBuf,
+    pub data_dir: PathBuf,
+    pub server_db_path: PathBuf,
+    pub news_db_path: PathBuf,
+    pub mods_db_path: PathBuf,
+    pub profile_path: PathBuf,
+    pub api_url: String,
+    pub request_timeout: u64,
+    pub server_request_timeout: u64,
+    pub server_db_ttl: u64,
+    pub news_db_ttl: u64,
+    pub history_size: usize,
+    pub steamcmd_enabled: bool,
+    pub filter_mod_limit: u32,
+    pub filter_players_limit: u32,
+    pub filter_players_slots: u32,
+    pub applications_dir: PathBuf,
+}
+
+impl Config {
+    pub fn load() -> Result<Self> {
+        let data_dir = dirs_data_dir();
+        fs::create_dir_all(&data_dir)?;
+
+        let config_path = data_dir.join("dayz-ctl.conf");
+        let mut vars = HashMap::new();
+        if config_path.exists() {
+            let content = fs::read_to_string(&config_path)?;
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((key, val)) = line.split_once('=') {
+                    vars.insert(key.trim().to_string(), val.trim().to_string());
+                }
+            }
+        }
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let applications_dir = PathBuf::from(&home).join(".local/share/applications");
+
+        Ok(Config {
+            path: config_path,
+            server_db_path: data_dir.join("servers.json"),
+            news_db_path: data_dir.join("news.json"),
+            mods_db_path: data_dir.join("mods.json"),
+            profile_path: data_dir.join("profile.json"),
+            api_url: vars
+                .get("DAYZ_API")
+                .cloned()
+                .unwrap_or_else(|| "https://dayzsalauncher.com/api/v1".into()),
+            request_timeout: parse_or(&vars, "DAYZ_REQUEST_TIMEOUT", 10),
+            server_request_timeout: parse_or(&vars, "DAYZ_SERVER_REQUEST_TIMEOUT", 30),
+            server_db_ttl: parse_or(&vars, "DAYZ_SERVER_DB_TTL", 300),
+            news_db_ttl: parse_or(&vars, "DAYZ_NEWS_DB_TTL", 3600),
+            history_size: parse_or(&vars, "DAYZ_HISTORY_SIZE", 10),
+            steamcmd_enabled: vars
+                .get("DAYZ_STEAMCMD_ENABLED")
+                .map(|v| v == "true")
+                .unwrap_or(true),
+            filter_mod_limit: parse_or(&vars, "DAYZ_FILTER_MOD_LIMIT", 10),
+            filter_players_limit: parse_or(&vars, "DAYZ_FILTER_PLAYERS_LIMIT", 50),
+            filter_players_slots: parse_or(&vars, "DAYZ_FILTER_PLAYERS_SLOTS", 60),
+            applications_dir,
+            data_dir,
+        })
+    }
+
+    pub fn set_var(&mut self, key: &str, value: &str) -> Result<()> {
+        let content = if self.path.exists() {
+            fs::read_to_string(&self.path)?
+        } else {
+            String::new()
+        };
+
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        let entry = format!("{key}={value}");
+        let mut found = false;
+        for line in &mut lines {
+            if line.starts_with(&format!("{key}=")) {
+                *line = entry.clone();
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            lines.push(entry);
+        }
+        fs::write(&self.path, lines.join("\n") + "\n")?;
+
+        match key {
+            "DAYZ_STEAMCMD_ENABLED" => self.steamcmd_enabled = value == "true",
+            "DAYZ_API" => self.api_url = value.to_string(),
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+fn dirs_data_dir() -> PathBuf {
+    if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "dayz-ctl") {
+        proj_dirs.data_dir().to_path_buf()
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        Path::new(&home).join(".local/share/dayz-ctl")
+    }
+}
+
+fn parse_or<T: std::str::FromStr>(vars: &HashMap<String, String>, key: &str, default: T) -> T {
+    vars.get(key)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
