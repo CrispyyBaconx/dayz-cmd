@@ -1,6 +1,5 @@
 use crate::server::Server;
-use anyhow::{Context, Result, bail};
-use std::fs;
+use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
@@ -107,46 +106,7 @@ pub fn apply_offline_spawn_setting(
         return Ok(());
     };
 
-    let client_file = dayz_path
-        .join("Missions")
-        .join(mission_id)
-        .join("core")
-        .join("CommunityOfflineClient.c");
-
-    let content = fs::read_to_string(&client_file).with_context(|| {
-        format!(
-            "read offline mission client file for spawn toggle: {}",
-            client_file.display()
-        )
-    })?;
-
-    let (expected, replacement) = if spawn_enabled {
-        ("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
-    } else {
-        ("HIVE_ENABLED = false;", "HIVE_ENABLED = true;")
-    };
-
-    if content.contains(expected) {
-        return Ok(());
-    }
-
-    let updated = content.replace(replacement, expected);
-
-    if updated == content {
-        bail!(
-            "offline mission spawn toggle marker not found in {}",
-            client_file.display()
-        );
-    }
-
-    fs::write(&client_file, updated).with_context(|| {
-        format!(
-            "write offline mission client file for spawn toggle: {}",
-            client_file.display()
-        )
-    })?;
-
-    Ok(())
+    crate::offline::launch::set_hive_enabled(dayz_path, mission_id, spawn_enabled)
 }
 
 pub fn build_offline_launch_args(

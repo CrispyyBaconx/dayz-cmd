@@ -116,6 +116,10 @@ impl Profile {
             .collect()
     }
 
+    pub fn offline_prefs(&self, mission_id: &str) -> Option<&OfflineMissionPrefs> {
+        self.offline.get(mission_id)
+    }
+
     pub fn toggle_option(&mut self, key: &str) -> Option<bool> {
         let option = self.options.get_mut(key)?;
         option.enabled = !option.enabled;
