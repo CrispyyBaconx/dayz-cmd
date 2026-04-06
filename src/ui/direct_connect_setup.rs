@@ -8,7 +8,6 @@ use crate::app::{App, LaunchTarget};
 
 pub struct DirectConnectSetupScreen {
     pub selected_mod_ids: Vec<u64>,
-    pub password: Option<String>,
     list_state: ListState,
 }
 
@@ -16,7 +15,6 @@ impl DirectConnectSetupScreen {
     pub fn new() -> Self {
         Self {
             selected_mod_ids: Vec::new(),
-            password: None,
             list_state: ListState::default(),
         }
     }
@@ -30,12 +28,6 @@ impl DirectConnectSetupScreen {
         app.mods_db.mods.get(index).map(|mod_info| mod_info.id)
     }
 
-    fn sync_launch_prep(&self, app: &mut App) {
-        if let Some(prep) = app.launch_prep.as_mut() {
-            prep.mod_ids = self.selected_mod_ids.clone();
-        }
-    }
-
     fn toggle_selected_mod(&mut self, app: &mut App) {
         let Some(mod_id) = self.selected_mod_id(app) else {
             return;
@@ -46,23 +38,18 @@ impl DirectConnectSetupScreen {
         } else {
             self.selected_mod_ids.push(mod_id);
         }
-
-        self.sync_launch_prep(app);
     }
 }
 
 impl Screen for DirectConnectSetupScreen {
     fn on_enter(&mut self, app: &mut App) {
-        self.selected_mod_ids = app
-            .launch_prep
-            .as_ref()
-            .map(|prep| prep.mod_ids.clone())
-            .unwrap_or_default();
-
-        self.password = app
-            .launch_prep
-            .as_ref()
-            .and_then(|prep| prep.password.clone());
+        if self.selected_mod_ids.is_empty() {
+            self.selected_mod_ids = app
+                .launch_prep
+                .as_ref()
+                .map(|prep| prep.mod_ids.clone())
+                .unwrap_or_default();
+        }
 
         if self.list_state.selected().is_none() && !app.mods_db.mods.is_empty() {
             self.list_state.select(Some(0));
@@ -139,7 +126,10 @@ impl Screen for DirectConnectSetupScreen {
         }
 
         match key.code {
-            KeyCode::Esc => Action::PopScreen,
+            KeyCode::Esc => {
+                app.clear_direct_connect_launch_prep();
+                Action::PopScreen
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 let Some(count) = (!app.mods_db.mods.is_empty()).then_some(app.mods_db.mods.len())
                 else {
@@ -166,7 +156,9 @@ impl Screen for DirectConnectSetupScreen {
             }
             KeyCode::Char('p') => Action::PushScreen(ScreenId::PasswordPrompt),
             KeyCode::Enter => {
-                self.sync_launch_prep(app);
+                if let Some(prep) = app.launch_prep.as_mut() {
+                    prep.mod_ids = self.selected_mod_ids.clone();
+                }
                 Action::LaunchGame
             }
             _ => Action::None,
@@ -226,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn toggles_installed_mod_ids_in_shared_launch_prep() {
+    fn toggles_installed_mod_ids_locally_until_confirm() {
         let mut app = test_app();
         app.mods_db = ModsDb {
             sum: String::new(),
@@ -255,9 +247,10 @@ mod tests {
         );
 
         assert_eq!(action, Action::None);
+        assert_eq!(screen.selected_mod_ids, vec![111]);
         assert_eq!(
             app.launch_prep.as_ref().map(|prep| prep.mod_ids.clone()),
-            Some(vec![111])
+            Some(Vec::new())
         );
     }
 
@@ -335,25 +328,64 @@ mod tests {
     }
 
     #[test]
-    fn confirming_setup_requests_launch_after_selection() {
+    fn escape_clears_pending_direct_connect_launch_prep() {
         let mut app = test_app();
-        app.launch_prep = Some(LaunchPrep {
-            target: LaunchTarget::DirectConnect {
-                ip: "5.6.7.8".into(),
-                port: 2402,
-            },
-            mod_ids: vec![111],
-            password: Some("secret".into()),
-            offline_spawn_enabled: None,
-        });
+        app.launch_prep = Some(prep("5.6.7.8", 2402));
         let mut screen = DirectConnectSetupScreen::new();
         screen.on_enter(&mut app);
 
+        let action = screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
+        assert!(app.launch_prep.is_none());
+    }
+
+    #[test]
+    fn canceling_password_prompt_leaves_setup_active_and_selection_intact() {
+        let mut app = test_app();
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: vec![ModInfo {
+                name: "Mod 111".into(),
+                id: 111,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.launch_prep = Some(prep("5.6.7.8", 2402));
+        let mut screen = DirectConnectSetupScreen::new();
+        screen.on_enter(&mut app);
+        let _ = screen.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), &mut app);
+
         let action = screen.handle_key(
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
             &mut app,
         );
+        assert_eq!(action, Action::PushScreen(ScreenId::PasswordPrompt));
 
-        assert_eq!(action, Action::LaunchGame);
+        let mut prompt = PasswordPromptScreen::new();
+        let cancel_action =
+            prompt.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(cancel_action, Action::PopScreen);
+        assert!(app.launch_prep.is_some());
+        assert!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_ref())
+                .is_none()
+        );
+
+        screen.on_enter(&mut app);
+        assert_eq!(screen.selected_mod_ids, vec![111]);
+
+        let launch_action =
+            screen.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(launch_action, Action::LaunchGame);
+        assert_eq!(
+            app.launch_prep.as_ref().map(|prep| prep.mod_ids.clone()),
+            Some(vec![111])
+        );
     }
 }

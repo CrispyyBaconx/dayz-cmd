@@ -129,6 +129,15 @@ impl App {
         }
     }
 
+    pub(crate) fn clear_direct_connect_launch_prep(&mut self) {
+        if matches!(
+            self.launch_prep.as_ref().map(|prep| &prep.target),
+            Some(LaunchTarget::DirectConnect { .. })
+        ) {
+            self.launch_prep = None;
+        }
+    }
+
     pub fn init_main_menu(&mut self) {
         if let Some(mut screen) = self.screen_stack.pop() {
             screen.on_enter(self);
