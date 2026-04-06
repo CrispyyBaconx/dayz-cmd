@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::api::news::NewsArticle;
-use crate::api::releases::ReleaseInfo;
+use crate::api::releases::{ReleaseInfo, UpdateAvailability};
 use crate::config::Config;
 use crate::mods::ModsDb;
 use crate::profile::Profile;
@@ -184,6 +184,32 @@ impl App {
             }
             Err(e) => {
                 tracing::warn!("Steam client not available: {e}");
+            }
+        }
+    }
+
+    pub fn check_for_updates(&mut self) {
+        match crate::api::releases::check_for_update(
+            &self.config.github_owner,
+            &self.config.github_repo,
+            crate::config::VERSION,
+            self.config.request_timeout,
+        ) {
+            Ok(availability) => self.apply_update_availability(availability),
+            Err(e) => {
+                tracing::warn!("Failed to check for updates: {e}");
+            }
+        }
+    }
+
+    pub fn apply_update_availability(&mut self, availability: UpdateAvailability) {
+        match availability {
+            UpdateAvailability::UpToDate => {
+                self.available_update = None;
+            }
+            UpdateAvailability::Available(release) => {
+                self.available_update = Some(release);
+                self.process_action(Action::PushScreen(ScreenId::UpdatePrompt));
             }
         }
     }
@@ -525,7 +551,38 @@ fn render_status_bar(f: &mut Frame, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use crate::profile::Profile;
     use crate::steam::ItemState;
+    use std::path::PathBuf;
+
+    fn test_app() -> App {
+        let data_dir = std::env::temp_dir().join("dayz-cmd-tests-app");
+        App::new(
+            Config {
+                path: data_dir.join("dayz-cmd.conf"),
+                data_dir: data_dir.clone(),
+                server_db_path: data_dir.join("servers.json"),
+                news_db_path: data_dir.join("news.json"),
+                mods_db_path: data_dir.join("mods.json"),
+                profile_path: data_dir.join("profile.json"),
+                api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
+                request_timeout: 10,
+                server_request_timeout: 30,
+                server_db_ttl: 300,
+                news_db_ttl: 3600,
+                history_size: 10,
+                steamcmd_enabled: true,
+                filter_mod_limit: 10,
+                filter_players_limit: 50,
+                filter_players_slots: 60,
+                applications_dir: PathBuf::from("/tmp"),
+            },
+            Profile::default(),
+        )
+    }
 
     #[test]
     fn download_status_message_includes_progress_and_waiting_items() {
@@ -574,5 +631,32 @@ mod tests {
                 progress: Some((10, 100)),
             },
         ]));
+    }
+
+    #[test]
+    fn update_availability_pushes_prompt_screen() {
+        let mut app = test_app();
+
+        app.apply_update_availability(UpdateAvailability::Available(ReleaseInfo {
+            tag: "0.4.0".into(),
+            installer_url: "https://example.test/installer.sh".into(),
+        }));
+
+        assert_eq!(app.available_update.as_ref().map(|release| release.tag.as_str()), Some("0.4.0"));
+        assert_eq!(app.screen_stack.len(), 2);
+    }
+
+    #[test]
+    fn up_to_date_clears_available_update() {
+        let mut app = test_app();
+        app.available_update = Some(ReleaseInfo {
+            tag: "0.4.0".into(),
+            installer_url: "https://example.test/installer.sh".into(),
+        });
+
+        app.apply_update_availability(UpdateAvailability::UpToDate);
+
+        assert!(app.available_update.is_none());
+        assert_eq!(app.screen_stack.len(), 1);
     }
 }

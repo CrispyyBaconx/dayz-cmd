@@ -26,7 +26,7 @@ Add a safe launch-time self-update flow for the Rust TUI launcher that checks Gi
 
 Each valid Linux release must publish an installer asset with a fixed predictable name:
 
-- `dayz-ctl-installer-linux.sh`
+- `dayz-cmd-installer-linux.sh`
 
 The launcher will only use that asset name. It will not scrape arbitrary release assets or guess platform artifacts.
 
@@ -92,7 +92,7 @@ Minimal integration:
 The app should execute the downloaded installer script with explicit inputs, for example:
 
 - env:
-  - `DAYZ_CTL_VERSION=<release tag>`
+  - `DAYZ_CMD_VERSION=<release tag>`
 - args:
   - optional repo/asset inputs if needed later
 

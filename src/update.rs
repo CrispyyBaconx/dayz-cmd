@@ -31,7 +31,7 @@ pub fn run_installer_and_restart(installer_url: &str, version: &str) -> Result<(
             .to_str()
             .context("Executable path is not valid UTF-8")?,
     );
-    spawn_exec(&restart).context("Failed to restart dayz-ctl")?;
+    spawn_exec(&restart).context("Failed to restart dayz-cmd")?;
 
     let _ = fs::remove_file(installer_path);
     Ok(())
@@ -40,7 +40,7 @@ pub fn run_installer_and_restart(installer_url: &str, version: &str) -> Result<(
 fn download_installer(installer_url: &str) -> Result<PathBuf> {
     let response = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?
         .get(installer_url)
         .send()
@@ -65,7 +65,7 @@ fn build_installer_exec(installer_path: &str, version: &str, restart_exe: &str) 
     ExecSpec {
         program: installer_path.to_string(),
         args: vec!["--restart-exe".to_string(), restart_exe.to_string()],
-        env: vec![("DAYZ_CTL_VERSION".to_string(), version.to_string())],
+        env: vec![("DAYZ_CMD_VERSION".to_string(), version.to_string())],
     }
 }
 
@@ -104,7 +104,7 @@ fn spawn_exec(spec: &ExecSpec) -> Result<()> {
 
 fn temp_installer_path() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "dayz-ctl-installer-{}-{}.sh",
+        "dayz-cmd-installer-{}-{}.sh",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -124,23 +124,23 @@ mod tests {
     #[test]
     fn builds_installer_command_with_version_env() {
         let exec =
-            build_installer_exec("/tmp/dayz-ctl-installer.sh", "0.4.0", "/tmp/dayz-ctl");
+            build_installer_exec("/tmp/dayz-cmd-installer.sh", "0.4.0", "/tmp/dayz-cmd");
 
-        assert_eq!(exec.program, "/tmp/dayz-ctl-installer.sh");
+        assert_eq!(exec.program, "/tmp/dayz-cmd-installer.sh");
         assert_eq!(
             exec.args,
-            vec!["--restart-exe".to_string(), "/tmp/dayz-ctl".to_string()]
+            vec!["--restart-exe".to_string(), "/tmp/dayz-cmd".to_string()]
         );
         assert_eq!(
             exec.env,
-            vec![("DAYZ_CTL_VERSION".to_string(), "0.4.0".to_string())]
+            vec![("DAYZ_CMD_VERSION".to_string(), "0.4.0".to_string())]
         );
     }
 
     #[test]
     fn restart_command_uses_current_exe_path() {
-        let restart = build_restart_exec("/usr/bin/dayz-ctl");
-        assert_eq!(restart.program, "/usr/bin/dayz-ctl");
+        let restart = build_restart_exec("/usr/bin/dayz-cmd");
+        assert_eq!(restart.program, "/usr/bin/dayz-cmd");
         assert!(restart.args.is_empty());
     }
 

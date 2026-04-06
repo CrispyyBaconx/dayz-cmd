@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::time::Duration;
 
-const INSTALLER_ASSET_NAME: &str = "dayz-ctl-installer-linux.sh";
+const INSTALLER_ASSET_NAME: &str = "dayz-cmd-installer-linux.sh";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReleaseInfo {
@@ -50,7 +50,7 @@ pub fn fetch_latest_release(owner: &str, repo: &str, timeout_secs: u64) -> Resul
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases");
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
-        .user_agent(format!("dayz-ctl {}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("dayz-cmd {}", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let body = client
@@ -108,7 +108,7 @@ mod tests {
             "draft": false,
             "prerelease": false,
             "assets": [
-              { "name": "dayz-ctl-installer-linux.sh", "browser_download_url": "https://example.test/0.4.0/installer.sh" }
+              { "name": "dayz-cmd-installer-linux.sh", "browser_download_url": "https://example.test/0.4.0/installer.sh" }
             ]
           }
         ]
@@ -128,7 +128,7 @@ mod tests {
             "draft": false,
             "prerelease": true,
             "assets": [
-              { "name": "dayz-ctl-installer-linux.sh", "browser_download_url": "https://example.test/beta/installer.sh" }
+              { "name": "dayz-cmd-installer-linux.sh", "browser_download_url": "https://example.test/beta/installer.sh" }
             ]
           },
           {
@@ -136,7 +136,7 @@ mod tests {
             "draft": true,
             "prerelease": false,
             "assets": [
-              { "name": "dayz-ctl-installer-linux.sh", "browser_download_url": "https://example.test/draft/installer.sh" }
+              { "name": "dayz-cmd-installer-linux.sh", "browser_download_url": "https://example.test/draft/installer.sh" }
             ]
           },
           {
@@ -144,7 +144,7 @@ mod tests {
             "draft": false,
             "prerelease": false,
             "assets": [
-              { "name": "dayz-ctl-installer-linux.sh", "browser_download_url": "https://example.test/0.4.0/installer.sh" }
+              { "name": "dayz-cmd-installer-linux.sh", "browser_download_url": "https://example.test/0.4.0/installer.sh" }
             ]
           }
         ]
@@ -163,7 +163,7 @@ mod tests {
             "draft": false,
             "prerelease": false,
             "assets": [
-              { "name": "dayz-ctl-linux.tar.gz", "browser_download_url": "https://example.test/0.4.0/archive.tar.gz" }
+              { "name": "dayz-cmd-linux.tar.gz", "browser_download_url": "https://example.test/0.4.0/archive.tar.gz" }
             ]
           }
         ]

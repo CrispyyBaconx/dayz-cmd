@@ -22,7 +22,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 #[derive(Parser)]
-#[command(name = "dayz-ctl", version, about = "DayZ server browser and launcher for Linux")]
+#[command(name = "dayz-cmd", version, about = "DayZ server browser and launcher for Linux")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -41,7 +41,7 @@ enum Commands {
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("dayz_ctl=info")
+        .with_env_filter("dayz_cmd=info")
         .with_writer(io::stderr)
         .init();
 
@@ -74,6 +74,7 @@ fn run_tui(config: config::Config, profile: profile::Profile) -> Result<()> {
 
     let _ = app.profile.save(&app.config.profile_path);
     app.init_main_menu();
+    app.check_for_updates();
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -159,4 +160,16 @@ fn run_direct_connect(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_is_named_dayz_cmd() {
+        let command = Cli::command();
+        assert_eq!(command.get_name(), "dayz-cmd");
+    }
 }
