@@ -7,6 +7,7 @@ pub mod popup;
 pub mod server_browser;
 pub mod server_detail;
 pub mod theme;
+pub mod update_prompt;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -21,6 +22,7 @@ pub enum Action {
     PopScreen,
     ReplaceScreen(ScreenId),
     LaunchGame,
+    RunSelfUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +37,7 @@ pub enum ScreenId {
     News,
     DirectConnect,
     FilterSelect,
+    UpdatePrompt,
     Confirm(ConfirmAction),
 }
 
@@ -51,4 +54,7 @@ pub trait Screen {
     fn render(&mut self, f: &mut Frame, app: &App);
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action;
     fn on_enter(&mut self, _app: &mut App) {}
+    fn on_tick(&mut self, _app: &mut App) -> Action {
+        Action::None
+    }
 }

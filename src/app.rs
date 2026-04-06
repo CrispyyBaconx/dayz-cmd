@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::api::news::NewsArticle;
+use crate::api::releases::ReleaseInfo;
 use crate::config::Config;
 use crate::mods::ModsDb;
 use crate::profile::Profile;
@@ -41,6 +42,7 @@ pub struct App {
     pub selected_server: Option<usize>,
     pub direct_connect_target: Option<(String, u16)>,
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
+    pub available_update: Option<ReleaseInfo>,
     pub update_mods_before_launch: bool,
     pending_launch: Option<PendingLaunch>,
     asked_update_mods: bool,
@@ -68,6 +70,7 @@ impl App {
             selected_server: None,
             direct_connect_target: None,
             server_runtime: HashMap::new(),
+            available_update: None,
             update_mods_before_launch: false,
             pending_launch: None,
             asked_update_mods: false,
@@ -235,6 +238,9 @@ impl App {
             Action::LaunchGame => {
                 self.do_launch();
             }
+            Action::RunSelfUpdate => {
+                self.run_self_update();
+            }
         }
     }
 
@@ -260,6 +266,7 @@ impl App {
             ScreenId::News => Box::new(news::NewsScreen::new()),
             ScreenId::DirectConnect => Box::new(direct_connect::DirectConnectScreen::new()),
             ScreenId::FilterSelect => Box::new(filter::FilterSelectScreen::new(self)),
+            ScreenId::UpdatePrompt => Box::new(update_prompt::UpdatePromptScreen::new()),
             ScreenId::Confirm(action) => Box::new(popup::ConfirmScreen::new(action)),
         }
     }
@@ -390,6 +397,23 @@ impl App {
         }
     }
 
+    fn run_self_update(&mut self) {
+        let Some(update) = self.available_update.clone() else {
+            self.status_message = Some("No update is currently available".into());
+            return;
+        };
+
+        match crate::update::run_installer_and_restart(&update.installer_url, &update.tag) {
+            Ok(()) => {
+                self.status_message = Some(format!("Updated to {}", update.tag));
+                self.running = false;
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Self-update failed: {e}"));
+            }
+        }
+    }
+
     fn ensure_symlinks(&mut self, mod_ids: &[u64]) -> anyhow::Result<()> {
         if let (Some(dp), Some(wp)) = (&self.dayz_path, &self.workshop_path) {
             crate::mods::ensure_mod_symlinks(dp, wp, mod_ids)?;
@@ -406,6 +430,15 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        let action = if let Some(mut screen) = self.screen_stack.pop() {
+            let action = screen.on_tick(self);
+            self.screen_stack.push(screen);
+            action
+        } else {
+            Action::None
+        };
+        self.process_action(action);
+
         let Some(pending) = self.pending_launch.take() else {
             return;
         };
