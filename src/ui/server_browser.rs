@@ -295,31 +295,27 @@ impl ServerBrowserScreen {
         let chunks =
             Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 
-        let search_label = if self.search_active { "Search: " } else { "/ search " };
-        let search_line = Line::from(vec![
-            Span::styled(search_label, theme::DIM),
-            Span::styled(&self.search_input, theme::SEARCH_INPUT),
-            if self.search_active {
-                Span::styled("▌", theme::INFO)
-            } else {
-                Span::raw("")
-            },
-            Span::raw("  "),
-            Span::styled(
-                format!("{} servers", self.filtered_indices.len()),
-                theme::DIM,
+        let mut spans = Vec::new();
+        if self.search_active {
+            spans.push(Span::styled("Search: ", theme::INFO));
+            spans.push(Span::styled(&self.search_input, theme::SEARCH_INPUT));
+            spans.push(Span::styled("▌", theme::INFO));
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(
+            format!("{} servers", self.filtered_indices.len()),
+            theme::DIM,
+        ));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!(
+                "Sort: {} {}",
+                self.sort_column.label(),
+                if self.sort_desc { "desc" } else { "asc" }
             ),
-            Span::raw("  "),
-            Span::styled(
-                format!(
-                    "Sort: {} {}",
-                    self.sort_column.label(),
-                    if self.sort_desc { "desc" } else { "asc" }
-                ),
-                theme::DIM,
-            ),
-        ]);
-        let search_bar = Paragraph::new(search_line).block(
+            theme::DIM,
+        ));
+        let search_bar = Paragraph::new(Line::from(spans)).block(
             Block::default()
                     .borders(Borders::ALL)
                     .border_style(if self.search_active {
@@ -332,6 +328,11 @@ impl ServerBrowserScreen {
                     BrowseSource::Filtered(_) => " Filtered Servers ",
                     BrowseSource::Favorites => " Favorites ",
                     BrowseSource::History => " Recently Played ",
+                })
+                .title_bottom(if self.search_active {
+                    " Esc: cancel "
+                } else {
+                    " /: search  s: sort  q: back "
                 }),
         );
         f.render_widget(search_bar, chunks[0]);
