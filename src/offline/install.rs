@@ -223,6 +223,55 @@ mod tests {
     }
 
     #[test]
+    fn offline_install_extract_failure_leaves_previous_release_untouched() {
+        let root = test_root("install-extract-failure");
+        fs::create_dir_all(&root).expect("create temp root");
+        let config = test_config(&root);
+        let existing_release = release_dir_for_tag(&config, "v1.0.0");
+        fs::create_dir_all(
+            existing_release.join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core"),
+        )
+        .expect("create existing release");
+        fs::write(
+            existing_release.join(
+                "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c",
+            ),
+            "HIVE_ENABLED = false;",
+        )
+        .expect("write existing mission");
+        save_offline_state(
+            &config,
+            &OfflineState {
+                installed_tag: Some("v1.0.0".into()),
+                latest_known_tag: None,
+                managed_missions: vec!["DayZCommunityOfflineMode.ChernarusPlus".into()],
+                last_check_ts: None,
+            },
+        )
+        .expect("save state");
+
+        let client = test_client();
+        let release = sample_release(&start_tarball_server());
+        let archive_path =
+            download_release_tarball(&config, &release, &client).expect("download archive");
+        fs::write(&archive_path, b"not a gzip archive").expect("corrupt downloaded archive");
+        let staging_dir = staging_dir_for_tag(&config, &release.tag);
+        let result = extract_release_tarball(&archive_path, &staging_dir);
+
+        assert!(result.is_err());
+        assert_eq!(
+            crate::offline::storage::load_offline_state(&config)
+                .expect("load state")
+                .installed_tag
+                .as_deref(),
+            Some("v1.0.0")
+        );
+        assert!(existing_release
+            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
+            .exists());
+    }
+
+    #[test]
     fn offline_install_valid_release_promotes_content_and_returns_missions() {
         let root = test_root("install-success");
         fs::create_dir_all(&root).expect("create temp root");
@@ -245,7 +294,7 @@ mod tests {
     fn start_tarball_server() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         let addr = listener.local_addr().expect("local addr");
-        let payload = build_tarball();
+        let payload = build_tarball(true);
 
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
@@ -285,7 +334,7 @@ mod tests {
         format!("http://{addr}/archive.tar.gz")
     }
 
-    fn build_tarball() -> Vec<u8> {
+    fn build_tarball(include_client_file: bool) -> Vec<u8> {
         use flate2::write::GzEncoder;
         use flate2::Compression;
         use tar::Builder;
@@ -293,18 +342,30 @@ mod tests {
         let mut tar_data = Vec::new();
         {
             let mut builder = Builder::new(&mut tar_data);
-            let content = b"HIVE_ENABLED = true;";
-            let mut header = tar::Header::new_gnu();
-            header.set_size(content.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
+            let mission_root =
+                "Arkensor-DayZCommunityOfflineMode-123/Missions/DayZCommunityOfflineMode.ChernarusPlus";
+            let mut dir_header = tar::Header::new_gnu();
+            dir_header.set_entry_type(tar::EntryType::Directory);
+            dir_header.set_mode(0o755);
+            dir_header.set_size(0);
+            dir_header.set_cksum();
             builder
-                .append_data(
-                    &mut header,
-                    "Arkensor-DayZCommunityOfflineMode-123/Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c",
-                    &content[..],
-                )
-                .expect("append file");
+                .append_data(&mut dir_header, format!("{mission_root}/core/"), &[][..])
+                .expect("append core dir");
+            if include_client_file {
+                let content = b"HIVE_ENABLED = true;";
+                let mut header = tar::Header::new_gnu();
+                header.set_size(content.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder
+                    .append_data(
+                        &mut header,
+                        format!("{mission_root}/core/CommunityOfflineClient.c"),
+                        &content[..],
+                    )
+                    .expect("append file");
+            }
             builder.finish().expect("finish tar");
         }
 

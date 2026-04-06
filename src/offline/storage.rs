@@ -362,6 +362,18 @@ mod tests {
     }
 
     #[test]
+    fn offline_storage_rejects_invalid_extracted_layout_before_promotion() {
+        let root = test_root("validate-release-invalid");
+        fs::create_dir_all(&root).expect("create temp root");
+        let staging = staging_dir_for_tag(&test_config(&root), "v1.0.0");
+        fs::create_dir_all(staging.join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core"))
+            .expect("create mission dir");
+
+        let err = validate_extracted_release(&staging).expect_err("invalid release");
+        assert!(err.to_string().contains("CommunityOfflineClient.c"));
+    }
+
+    #[test]
     fn offline_storage_promotes_validated_content_without_mutating_state_json() {
         let root = test_root("promote-release");
         fs::create_dir_all(&root).expect("create temp root");
