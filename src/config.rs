@@ -124,6 +124,15 @@ impl Config {
     }
 }
 
+pub fn legacy_data_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    Path::new(&home).join(".local/share/dayz-ctl")
+}
+
+pub fn has_legacy_data() -> bool {
+    legacy_data_dir().join("profile.json").exists()
+}
+
 fn dirs_data_dir() -> PathBuf {
     if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "dayz-cmd") {
         proj_dirs.data_dir().to_path_buf()
@@ -165,6 +174,27 @@ mod tests {
         );
 
         drop(xdg_env);
+        drop(home_env);
+    }
+
+    #[test]
+    fn detects_legacy_profile_and_clears_after_rename() {
+        let _guard = env_lock();
+        let home =
+            std::env::temp_dir().join(format!("dayz-cmd-legacy-config-{}", std::process::id()));
+        let legacy_dir = home.join(".local/share/dayz-ctl");
+        let legacy_profile = legacy_dir.join("profile.json");
+        let migrated_profile = legacy_dir.join("profile.json.migrated");
+
+        fs::create_dir_all(&legacy_dir).expect("create legacy dir");
+        fs::write(&legacy_profile, "{}").expect("write legacy profile");
+
+        let home_env = EnvVarGuard::set("HOME", home.as_os_str());
+        assert!(has_legacy_data());
+
+        fs::rename(&legacy_profile, &migrated_profile).expect("rename legacy profile");
+        assert!(!has_legacy_data());
+
         drop(home_env);
     }
 

@@ -42,7 +42,7 @@ pub struct HistoryEntry {
     pub ts: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LaunchOption {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -131,6 +131,62 @@ impl Profile {
         };
         Some(())
     }
+}
+
+pub fn merge_legacy_profile(current: &mut Profile, legacy_path: &Path) -> Result<()> {
+    let legacy = Profile::load(legacy_path)?;
+
+    for favorite in legacy.favorites {
+        if !current
+            .favorites
+            .iter()
+            .any(|fav| fav.ip == favorite.ip && fav.port == favorite.port)
+        {
+            current.favorites.push(favorite);
+        }
+    }
+
+    for entry in legacy.history {
+        if !current
+            .history
+            .iter()
+            .any(|item| item.ip == entry.ip && item.port == entry.port)
+        {
+            current.history.push(entry);
+        }
+    }
+
+    let default_profile = Profile::default();
+    for (key, option) in legacy.options {
+        match current.options.get(&key) {
+            None => {
+                current.options.insert(key, option);
+            }
+            Some(current_option)
+                if default_profile.options.get(&key) == Some(current_option)
+                    && default_profile.options.get(&key) != Some(&option) =>
+            {
+                current.options.insert(key, option);
+            }
+            _ => {}
+        }
+    }
+
+    if current.steam_login.is_none() {
+        current.steam_login = legacy.steam_login;
+    }
+    if current.player.is_none() {
+        current.player = legacy.player;
+    }
+    if current.steam_root.is_none() {
+        current.steam_root = legacy.steam_root;
+    }
+
+    for (mission, prefs) in legacy.offline {
+        current.offline.entry(mission).or_insert(prefs);
+    }
+
+    Ok(())
 }
 
 impl Default for Profile {
@@ -289,5 +345,37 @@ mod tests {
                 .offline
                 .get("managed:DayZCommunityOfflineMode.ChernarusPlus")
         );
+    }
+
+    #[test]
+    fn merges_legacy_profile_without_duplicate_favorites_or_history() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "dayz-cmd-profile-merge-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().expect("timestamp")
+        ));
+        let legacy_path = temp_dir.join("legacy-profile.json");
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+        let mut current = Profile::default();
+        current.add_favorite("Current", "1.1.1.1", 2302);
+        current.add_history("Current", "1.1.1.1", 2302, 10);
+
+        let mut legacy = Profile::default();
+        legacy.add_favorite("Legacy Dupe", "1.1.1.1", 2302);
+        legacy.add_favorite("Legacy New", "2.2.2.2", 2402);
+        legacy.add_history("Legacy Dupe", "1.1.1.1", 2302, 10);
+        legacy.add_history("Legacy New", "2.2.2.2", 2402, 10);
+        legacy.save(&legacy_path).expect("save legacy profile");
+
+        merge_legacy_profile(&mut current, &legacy_path).expect("merge legacy profile");
+
+        assert_eq!(current.favorites.len(), 2);
+        assert!(current.is_favorite("1.1.1.1", 2302));
+        assert!(current.is_favorite("2.2.2.2", 2402));
+
+        assert_eq!(current.history.len(), 2);
+        assert!(current.history.iter().any(|entry| entry.ip == "1.1.1.1"));
+        assert!(current.history.iter().any(|entry| entry.ip == "2.2.2.2"));
     }
 }
