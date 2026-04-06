@@ -136,8 +136,7 @@ impl ServerDetailScreen {
 
         match action {
             DetailAction::Play => {
-                app.selected_server = Some(self.server_index);
-                app.direct_connect_target = None;
+                app.prepare_known_server_launch(self.server_index);
                 Action::LaunchGame
             }
             DetailAction::AddFavorite => {

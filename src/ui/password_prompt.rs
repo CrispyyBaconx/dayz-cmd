@@ -52,13 +52,13 @@ impl Screen for PasswordPromptScreen {
 
     fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Action {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            app.launch_password = None;
+            app.set_launch_password(None);
             return Action::PopScreen;
         }
 
         match key.code {
             KeyCode::Esc => {
-                app.launch_password = None;
+                app.set_launch_password(None);
                 Action::PopScreen
             }
             KeyCode::Backspace => {
@@ -69,7 +69,7 @@ impl Screen for PasswordPromptScreen {
                 if self.password.is_empty() {
                     return Action::None;
                 }
-                app.launch_password = Some(self.password.clone());
+                app.set_launch_password(Some(self.password.clone()));
                 Action::LaunchGame
             }
             KeyCode::Char(c) => {
@@ -84,6 +84,7 @@ impl Screen for PasswordPromptScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{LaunchPrep, LaunchTarget};
     use crate::config::Config;
     use crate::profile::Profile;
     use std::path::PathBuf;
@@ -121,10 +122,21 @@ mod tests {
         let mut screen = PasswordPromptScreen::new();
         screen.password = "secret".into();
         let mut app = test_app();
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::KnownServer(0),
+            mod_ids: Vec::new(),
+            password: None,
+            offline_spawn_enabled: None,
+        });
 
         let action = screen.handle_key(KeyEvent::from(KeyCode::Enter), &mut app);
 
         assert_eq!(action, Action::LaunchGame);
-        assert_eq!(app.launch_password.as_deref(), Some("secret"));
+        assert_eq!(
+            app.launch_prep
+                .as_ref()
+                .and_then(|prep| prep.password.as_deref()),
+            Some("secret")
+        );
     }
 }

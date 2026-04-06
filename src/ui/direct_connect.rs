@@ -137,8 +137,7 @@ impl Screen for DirectConnectScreen {
                     .iter()
                     .position(|s| s.endpoint.ip == self.ip && s.game_port == port)
                 {
-                    app.selected_server = Some(idx);
-                    app.direct_connect_target = None;
+                    app.prepare_known_server_launch(idx);
                     return Action::LaunchGame;
                 }
 
@@ -147,13 +146,11 @@ impl Screen for DirectConnectScreen {
                     .iter()
                     .position(|s| s.endpoint.ip == self.ip && s.endpoint.port == port)
                 {
-                    app.selected_server = Some(idx);
-                    app.direct_connect_target = None;
+                    app.prepare_known_server_launch(idx);
                     return Action::LaunchGame;
                 }
 
-                app.selected_server = None;
-                app.direct_connect_target = Some((self.ip.clone(), port));
+                app.prepare_direct_connect_launch(self.ip.clone(), port);
                 Action::LaunchGame
             }
             _ => Action::None,

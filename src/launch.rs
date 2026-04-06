@@ -1,5 +1,7 @@
 use crate::server::Server;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 pub const DAYZ_GAME_ID: &str = "221100";
@@ -10,6 +12,15 @@ fn build_connect_args(ip: &str, port: u16, password: Option<&str>) -> Vec<String
         args.push(format!("-password={pw}"));
     }
     args
+}
+
+fn build_mod_arg(mod_ids: &[u64]) -> Option<String> {
+    if mod_ids.is_empty() {
+        None
+    } else {
+        let mods_str: Vec<String> = mod_ids.iter().map(|id| format!("@{id}")).collect();
+        Some(format!("-mod={}", mods_str.join(";")))
+    }
 }
 
 pub fn build_launch_args(
@@ -49,8 +60,83 @@ pub fn build_direct_connect_args(
     extra_args: &[String],
     password: Option<&str>,
 ) -> Vec<String> {
+    build_direct_connect_args_with_mods(ip, port, player_name, &[], extra_args, password)
+}
+
+pub fn build_direct_connect_args_with_mods(
+    ip: &str,
+    port: u16,
+    player_name: &str,
+    mod_ids: &[u64],
+    extra_args: &[String],
+    password: Option<&str>,
+) -> Vec<String> {
     let mut args = vec!["-nolauncher".to_string(), format!("-name={player_name}")];
+    if let Some(mod_arg) = build_mod_arg(mod_ids) {
+        args.push(mod_arg);
+    }
     args.extend(build_connect_args(ip, port, password));
+    args.extend(extra_args.iter().cloned());
+    args
+}
+
+pub fn apply_offline_spawn_setting(
+    dayz_path: &Path,
+    mission_id: &str,
+    spawn_enabled: Option<bool>,
+) -> Result<()> {
+    let Some(spawn_enabled) = spawn_enabled else {
+        return Ok(());
+    };
+
+    let client_file = dayz_path
+        .join("Missions")
+        .join(mission_id)
+        .join("core")
+        .join("CommunityOfflineClient.c");
+
+    let content = fs::read_to_string(&client_file).with_context(|| {
+        format!(
+            "read offline mission client file for spawn toggle: {}",
+            client_file.display()
+        )
+    })?;
+
+    let updated = if spawn_enabled {
+        content.replace("HIVE_ENABLED = false;", "HIVE_ENABLED = true;")
+    } else {
+        content.replace("HIVE_ENABLED = true;", "HIVE_ENABLED = false;")
+    };
+
+    fs::write(&client_file, updated).with_context(|| {
+        format!(
+            "write offline mission client file for spawn toggle: {}",
+            client_file.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+pub fn build_offline_launch_args(
+    mission_id: &str,
+    mod_ids: &[u64],
+    player_name: &str,
+    extra_args: &[String],
+) -> Vec<String> {
+    let mut args = vec![
+        "-nolauncher".to_string(),
+        format!("-name={player_name}"),
+        "-filePatching".to_string(),
+        format!("-mission=./Missions/{mission_id}"),
+    ];
+
+    if let Some(mod_arg) = build_mod_arg(mod_ids) {
+        args.push(mod_arg);
+    }
+
+    args.push("-doLogs".to_string());
+    args.push("-scriptDebug=true".to_string());
     args.extend(extra_args.iter().cloned());
     args
 }
@@ -207,6 +293,62 @@ mod tests {
         assert!(args.contains(&"-port=2402".to_string()));
         assert!(!args.iter().any(|arg| arg.starts_with("-mod=")));
         assert!(args.contains(&"-name=Survivor".to_string()));
+    }
+
+    #[test]
+    fn builds_launch_args_for_direct_connect_with_mods_and_password() {
+        let args = build_direct_connect_args_with_mods(
+            "5.6.7.8",
+            2402,
+            "Survivor",
+            &[111, 222],
+            &["-nosplash".into()],
+            Some("secret"),
+        );
+
+        assert!(args.contains(&"-connect=5.6.7.8".to_string()));
+        assert!(args.contains(&"-port=2402".to_string()));
+        assert!(args.contains(&"-mod=@111;@222".to_string()));
+        assert!(args.contains(&"-password=secret".to_string()));
+        assert!(args.contains(&"-name=Survivor".to_string()));
+    }
+
+    #[test]
+    fn builds_offline_launch_args_from_explicit_prep_values() {
+        let args = build_offline_launch_args(
+            "DayZCommunityOfflineMode.ChernarusPlus",
+            &[123, 456],
+            "Survivor",
+            &["-nosplash".into()],
+        );
+
+        assert!(args.contains(&"-nolauncher".to_string()));
+        assert!(args.contains(&"-name=Survivor".to_string()));
+        assert!(args.contains(&"-filePatching".to_string()));
+        assert!(args.contains(&"-mission=./Missions/DayZCommunityOfflineMode.ChernarusPlus".to_string()));
+        assert!(args.contains(&"-mod=@123;@456".to_string()));
+        assert!(args.contains(&"-doLogs".to_string()));
+        assert!(args.contains(&"-scriptDebug=true".to_string()));
+    }
+
+    #[test]
+    fn offline_spawn_setting_toggles_mission_client_file() {
+        let root = temp_path("offline-spawn");
+        let client_file = root
+            .join("Missions")
+            .join("DayZCommunityOfflineMode.ChernarusPlus")
+            .join("core")
+            .join("CommunityOfflineClient.c");
+        fs::create_dir_all(client_file.parent().expect("client parent")).expect("create dirs");
+        fs::write(&client_file, "bool HIVE_ENABLED = false;\n").expect("write client file");
+
+        apply_offline_spawn_setting(&root, "DayZCommunityOfflineMode.ChernarusPlus", Some(true))
+            .expect("toggle spawn");
+
+        let content = fs::read_to_string(&client_file).expect("read client file");
+        assert!(content.contains("HIVE_ENABLED = true"));
+
+        fs::remove_dir_all(root).expect("remove temp root");
     }
 
     #[test]
