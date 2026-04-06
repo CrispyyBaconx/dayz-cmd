@@ -3,6 +3,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use std::fs;
 
 use super::{Action, ConfirmAction, Screen, theme};
 use crate::app::App;
@@ -27,12 +28,16 @@ impl ConfirmScreen {
             ConfirmAction::RemoveManagedMods => "Remove all launcher-managed mods?",
             ConfirmAction::RemoveModLinks => "Remove all mod symlinks?",
             ConfirmAction::UpdateModsBeforeLaunch => "Update all mods before launch?",
+            ConfirmAction::MigrateLegacy => {
+                "Legacy dayz-ctl config found. Migrate favorites and history?"
+            }
         }
     }
 
     fn yes_label(&self) -> &str {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => "Update",
+            ConfirmAction::MigrateLegacy => "Migrate",
             _ => "Yes",
         }
     }
@@ -40,6 +45,7 @@ impl ConfirmScreen {
     fn no_label(&self) -> &str {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => "Skip",
+            ConfirmAction::MigrateLegacy => "Skip",
             _ => "No",
         }
     }
@@ -121,6 +127,7 @@ impl ConfirmScreen {
                 app.update_mods_before_launch = false;
                 Action::LaunchGame
             }
+            ConfirmAction::MigrateLegacy => Action::PopScreen,
             _ => Action::PopScreen,
         }
     }
@@ -162,6 +169,25 @@ impl ConfirmScreen {
                 app.update_mods_before_launch = true;
                 Action::LaunchGame
             }
+            ConfirmAction::MigrateLegacy => {
+                let legacy_profile = crate::config::legacy_data_dir().join("profile.json");
+                let migrated_profile = legacy_profile.with_extension("json.migrated");
+
+                match crate::profile::merge_legacy_profile(&mut app.profile, &legacy_profile)
+                    .and_then(|_| app.profile.save(&app.config.profile_path))
+                    .and_then(|_| {
+                        fs::rename(&legacy_profile, &migrated_profile).map_err(Into::into)
+                    }) {
+                    Ok(()) => {
+                        app.status_message = Some("Migrated legacy favorites and history".into());
+                    }
+                    Err(error) => {
+                        app.status_message = Some(format!("Error: {error}"));
+                    }
+                }
+
+                Action::PopScreen
+            }
         }
     }
 }
@@ -182,9 +208,11 @@ mod tests {
     use crate::config::Config;
     use crate::profile::Profile;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs as unix_fs;
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(prefix: &str) -> PathBuf {
@@ -229,6 +257,41 @@ mod tests {
         app
     }
 
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("lock env")
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        value: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &std::ffi::OsStr) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: tests serialize environment access with ENV_LOCK.
+            unsafe { std::env::set_var(key, value) };
+            Self {
+                key,
+                value: previous,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.value {
+                // SAFETY: tests serialize environment access with ENV_LOCK.
+                unsafe { std::env::set_var(self.key, value) };
+            } else {
+                // SAFETY: tests serialize environment access with ENV_LOCK.
+                unsafe { std::env::remove_var(self.key) };
+            }
+        }
+    }
+
     #[test]
     fn confirming_remove_mod_links_executes_action() {
         let root = temp_path("popup-remove-links");
@@ -249,6 +312,67 @@ mod tests {
         assert_eq!(action, Action::PopScreen);
         assert!(!dayz_path.join("@123").exists());
 
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn confirming_legacy_migration_merges_profile_and_renames_legacy_file() {
+        let _guard = env_lock();
+        let root = temp_path("popup-legacy-migration");
+        let data_dir = root.join("data");
+        let home = root.join("home");
+        let legacy_dir = home.join(".local/share/dayz-ctl");
+        let legacy_path = legacy_dir.join("profile.json");
+        fs::create_dir_all(&data_dir).expect("create data dir");
+        fs::create_dir_all(&legacy_dir).expect("create legacy dir");
+        let home_env = EnvVarGuard::set("HOME", home.as_os_str());
+
+        let mut current = Profile::default();
+        current.add_favorite("Current", "1.1.1.1", 2302);
+        current
+            .save(&data_dir.join("profile.json"))
+            .expect("save current profile");
+
+        let mut legacy = Profile::default();
+        legacy.add_favorite("Legacy", "2.2.2.2", 2402);
+        legacy.save(&legacy_path).expect("save legacy profile");
+
+        let mut app = App::new(
+            Config {
+                path: data_dir.join("dayz-cmd.conf"),
+                data_dir: data_dir.clone(),
+                server_db_path: data_dir.join("servers.json"),
+                news_db_path: data_dir.join("news.json"),
+                mods_db_path: data_dir.join("mods.json"),
+                profile_path: data_dir.join("profile.json"),
+                api_url: "https://example.test".into(),
+                github_owner: "example".into(),
+                github_repo: "dayz-cmd".into(),
+                request_timeout: 10,
+                server_request_timeout: 30,
+                server_db_ttl: 300,
+                news_db_ttl: 3600,
+                history_size: 10,
+                steamcmd_enabled: true,
+                filter_mod_limit: 10,
+                filter_players_limit: 50,
+                filter_players_slots: 60,
+                applications_dir: PathBuf::from("/tmp"),
+            },
+            current,
+        );
+        let mut screen = ConfirmScreen::new(ConfirmAction::MigrateLegacy);
+        screen.selected = true;
+
+        let action = screen.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut app);
+
+        assert_eq!(action, Action::PopScreen);
+        assert!(legacy_dir.join("profile.json.migrated").exists());
+        assert!(!legacy_path.exists());
+        assert!(app.profile.is_favorite("1.1.1.1", 2302));
+        assert!(app.profile.is_favorite("2.2.2.2", 2402));
+
+        drop(home_env);
         fs::remove_dir_all(root).expect("remove temp root");
     }
 }

@@ -234,7 +234,7 @@ impl App {
         self.process_action(action);
     }
 
-    fn process_action(&mut self, action: Action) {
+    pub(crate) fn process_action(&mut self, action: Action) {
         match action {
             Action::None => {}
             Action::Quit => self.running = false,

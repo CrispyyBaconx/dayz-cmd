@@ -22,6 +22,7 @@ enum ConfigItem {
     LaunchOptions,
     PlayerName,
     SteamRoot,
+    MigrateLegacyData,
     InstalledMods,
     RemoveManagedMods,
     RemoveModLinks,
@@ -56,6 +57,10 @@ impl ConfigScreen {
             ConfigItem::SteamRoot,
         ];
 
+        if crate::config::has_legacy_data() {
+            items.push(ConfigItem::MigrateLegacyData);
+        }
+
         if !app.mods_db.mods.is_empty() {
             items.push(ConfigItem::InstalledMods);
             items.push(ConfigItem::RemoveManagedMods);
@@ -73,6 +78,7 @@ impl ConfigScreen {
             ConfigItem::LaunchOptions => "Game Launch Options",
             ConfigItem::PlayerName => "Change Player Name",
             ConfigItem::SteamRoot => "Change Steam Root Dir",
+            ConfigItem::MigrateLegacyData => "Migrate from dayz-ctl",
             ConfigItem::InstalledMods => "Installed Mod Info",
             ConfigItem::RemoveManagedMods => "Remove Managed Mods",
             ConfigItem::RemoveModLinks => "Remove All Mod Links",
@@ -185,6 +191,9 @@ impl ConfigScreen {
                 self.launch_option_keys = app.profile.options.keys().cloned().collect();
                 self.launch_options_state.select(Some(0));
                 Action::None
+            }
+            ConfigItem::MigrateLegacyData => {
+                Action::PushScreen(ScreenId::Confirm(ConfirmAction::MigrateLegacy))
             }
             ConfigItem::InstalledMods => {
                 let info = format!(

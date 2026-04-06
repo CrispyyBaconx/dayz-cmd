@@ -48,6 +48,7 @@ pub enum ConfirmAction {
     RemoveManagedMods,
     RemoveModLinks,
     UpdateModsBeforeLaunch,
+    MigrateLegacy,
 }
 
 pub trait Screen {

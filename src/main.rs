@@ -22,6 +22,8 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
+use crate::ui::{Action, ConfirmAction, ScreenId};
+
 #[derive(Parser)]
 #[command(
     name = "dayz-cmd",
@@ -79,6 +81,11 @@ fn run_tui(config: config::Config, profile: profile::Profile) -> Result<()> {
 
     let _ = app.profile.save(&app.config.profile_path);
     app.init_main_menu();
+    if crate::config::has_legacy_data() {
+        app.process_action(Action::PushScreen(ScreenId::Confirm(
+            ConfirmAction::MigrateLegacy,
+        )));
+    }
     app.check_for_updates();
 
     enable_raw_mode()?;
