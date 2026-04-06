@@ -17,7 +17,7 @@ pub struct ConfigScreen {
     items: Vec<ConfigItem>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ConfigItem {
     LaunchOptions,
     PlayerName,
@@ -65,9 +65,12 @@ impl ConfigScreen {
 
         if !app.mods_db.mods.is_empty() {
             items.push(ConfigItem::InstalledMods);
-            items.push(ConfigItem::RefreshInstalledMods);
             items.push(ConfigItem::RemoveManagedMods);
             items.push(ConfigItem::RemoveModLinks);
+        }
+
+        if app.workshop_path.is_some() {
+            items.push(ConfigItem::RefreshInstalledMods);
         }
 
         items.push(ConfigItem::RefreshServers);
@@ -555,5 +558,36 @@ mod tests {
             screen.execute_item(ConfigItem::RefreshInstalledMods, &mut app),
             Action::RefreshInstalledMods
         );
+    }
+
+    #[test]
+    fn config_shows_refresh_installed_mods_even_when_mod_cache_is_empty() {
+        let mut screen = ConfigScreen::new();
+        let mut app = test_app();
+
+        app.mods_db.mods.clear();
+
+        screen.on_enter(&mut app);
+
+        assert!(screen.items.contains(&ConfigItem::RefreshInstalledMods));
+        assert!(!screen.items.contains(&ConfigItem::InstalledMods));
+    }
+
+    #[test]
+    fn config_keeps_refresh_installed_mods_visible_when_mod_cache_is_populated() {
+        let mut screen = ConfigScreen::new();
+        let mut app = test_app();
+
+        app.mods_db.mods.push(crate::mods::ModInfo {
+            name: "Cached Mod".into(),
+            id: 123,
+            timestamp: 0,
+            size: 0,
+        });
+
+        screen.on_enter(&mut app);
+
+        assert!(screen.items.contains(&ConfigItem::RefreshInstalledMods));
+        assert!(screen.items.contains(&ConfigItem::InstalledMods));
     }
 }
