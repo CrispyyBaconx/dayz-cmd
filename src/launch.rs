@@ -12,6 +12,15 @@ fn build_connect_args(ip: &str, port: u16, password: Option<&str>) -> Vec<String
     args
 }
 
+fn build_mod_arg(mod_ids: &[u64]) -> Option<String> {
+    if mod_ids.is_empty() {
+        None
+    } else {
+        let mods_str: Vec<String> = mod_ids.iter().map(|id| format!("@{id}")).collect();
+        Some(format!("-mod={}", mods_str.join(";")))
+    }
+}
+
 pub fn build_launch_args(
     server: Option<&Server>,
     mod_ids: &[u64],
@@ -25,8 +34,9 @@ pub fn build_launch_args(
     args.push(format!("-name={player_name}"));
 
     if !mod_ids.is_empty() {
-        let mods_str: Vec<String> = mod_ids.iter().map(|id| format!("@{id}")).collect();
-        args.push(format!("-mod={}", mods_str.join(";")));
+        if let Some(mod_arg) = build_mod_arg(mod_ids) {
+            args.push(mod_arg);
+        }
     }
 
     if let Some(server) = server {
@@ -49,7 +59,21 @@ pub fn build_direct_connect_args(
     extra_args: &[String],
     password: Option<&str>,
 ) -> Vec<String> {
+    build_direct_connect_args_with_mods(ip, port, player_name, &[], extra_args, password)
+}
+
+pub fn build_direct_connect_args_with_mods(
+    ip: &str,
+    port: u16,
+    player_name: &str,
+    mod_ids: &[u64],
+    extra_args: &[String],
+    password: Option<&str>,
+) -> Vec<String> {
     let mut args = vec!["-nolauncher".to_string(), format!("-name={player_name}")];
+    if let Some(mod_arg) = build_mod_arg(mod_ids) {
+        args.push(mod_arg);
+    }
     args.extend(build_connect_args(ip, port, password));
     args.extend(extra_args.iter().cloned());
     args
@@ -206,6 +230,24 @@ mod tests {
         assert!(args.contains(&"-connect=5.6.7.8".to_string()));
         assert!(args.contains(&"-port=2402".to_string()));
         assert!(!args.iter().any(|arg| arg.starts_with("-mod=")));
+        assert!(args.contains(&"-name=Survivor".to_string()));
+    }
+
+    #[test]
+    fn builds_launch_args_for_direct_connect_with_mods_and_password() {
+        let args = build_direct_connect_args_with_mods(
+            "5.6.7.8",
+            2402,
+            "Survivor",
+            &[111, 222],
+            &["-nosplash".into()],
+            Some("secret"),
+        );
+
+        assert!(args.contains(&"-connect=5.6.7.8".to_string()));
+        assert!(args.contains(&"-port=2402".to_string()));
+        assert!(args.contains(&"-mod=@111;@222".to_string()));
+        assert!(args.contains(&"-password=secret".to_string()));
         assert!(args.contains(&"-name=Survivor".to_string()));
     }
 

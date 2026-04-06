@@ -12,6 +12,21 @@ use crate::steam::{ItemState, SteamHandle};
 use crate::ui::server_browser::{BrowseSource, ServerBrowserScreen};
 use crate::ui::*;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LaunchTarget {
+    KnownServer(usize),
+    DirectConnect { ip: String, port: u16 },
+    Offline { mission_id: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LaunchPrep {
+    target: LaunchTarget,
+    mod_ids: Vec<u64>,
+    password: Option<String>,
+    offline_spawn_enabled: Option<bool>,
+}
+
 struct PendingLaunch {
     args: Vec<String>,
     all_mod_ids: Vec<u64>,
@@ -41,6 +56,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub selected_server: Option<usize>,
     pub direct_connect_target: Option<(String, u16)>,
+    pub launch_prep: Option<LaunchPrep>,
     pub server_runtime: HashMap<String, crate::server::ServerRuntimeInfo>,
     pub available_update: Option<ReleaseInfo>,
     pub update_mods_before_launch: bool,
@@ -69,6 +85,7 @@ impl App {
             status_message: None,
             selected_server: None,
             direct_connect_target: None,
+            launch_prep: None,
             server_runtime: HashMap::new(),
             available_update: None,
             update_mods_before_launch: false,
@@ -289,8 +306,16 @@ impl App {
     }
 
     fn do_launch(&mut self) {
-        let server = self.selected_server.and_then(|i| self.servers.get(i));
-        let has_mods = server.map(|s| !s.mods.is_empty()).unwrap_or(false);
+        let prep = if let Some(prep) = self.launch_prep.as_ref() {
+            prep.clone()
+        } else if let Some(prep) = self.legacy_launch_prep() {
+            prep
+        } else {
+            self.status_message = Some("No launch target selected".into());
+            return;
+        };
+
+        let has_mods = !prep.mod_ids.is_empty();
 
         if has_mods && self.steam.is_some() && !self.asked_update_mods {
             self.asked_update_mods = true;
@@ -301,6 +326,7 @@ impl App {
             return;
         }
 
+        let mut prep = self.launch_prep.take().unwrap_or(prep);
         let player = self
             .profile
             .player
@@ -308,35 +334,53 @@ impl App {
             .unwrap_or_else(|| "Survivor".into());
         let extra_args = self.profile.get_launch_args();
 
-        let server = self.selected_server.and_then(|i| self.servers.get(i));
-        let direct_target = self.direct_connect_target.take();
-        let mod_ids: Vec<u64> = server
-            .map(|s| s.mods.iter().map(|m| m.steam_workshop_id).collect())
-            .unwrap_or_default();
-        let history_entry = server
-            .map(|server| {
-                (
+        let password = prep.password.take();
+        let offline_spawn_enabled = prep.offline_spawn_enabled.take();
+        let mod_ids = prep.mod_ids.clone();
+
+        let (args, history_entry) = match prep.target {
+            LaunchTarget::KnownServer(idx) => {
+                let Some(server) = self.servers.get(idx) else {
+                    self.status_message = Some(format!("Launch target server {idx} is unavailable"));
+                    self.asked_update_mods = false;
+                    self.update_mods_before_launch = false;
+                    return;
+                };
+                let history_entry = Some((
                     server.name.clone(),
                     server.endpoint.ip.clone(),
                     server.endpoint.port,
-                )
-            })
-            .or_else(|| {
-                direct_target
-                    .as_ref()
-                    .map(|(ip, port)| (format!("{ip}:{port}"), ip.clone(), *port))
-            });
-
-        let args = if let Some((ip, port)) = direct_target.as_ref() {
-            crate::launch::build_direct_connect_args(ip, *port, &player, &extra_args, None)
-        } else {
-            crate::launch::build_launch_args(
-                self.selected_server.and_then(|i| self.servers.get(i)),
-                &mod_ids,
-                &player,
-                &extra_args,
-                None,
-            )
+                ));
+                let args = crate::launch::build_launch_args(
+                    Some(server),
+                    &mod_ids,
+                    &player,
+                    &extra_args,
+                    password.as_deref(),
+                );
+                (args, history_entry)
+            }
+            LaunchTarget::DirectConnect { ip, port } => {
+                let history_entry = Some((format!("{ip}:{port}"), ip.clone(), port));
+                let args = crate::launch::build_direct_connect_args_with_mods(
+                    &ip,
+                    port,
+                    &player,
+                    &mod_ids,
+                    &extra_args,
+                    password.as_deref(),
+                );
+                (args, history_entry)
+            }
+            LaunchTarget::Offline { mission_id } => {
+                let _ = offline_spawn_enabled;
+                self.status_message = Some(format!(
+                    "Offline launch is not wired through App::do_launch yet ({mission_id})"
+                ));
+                self.asked_update_mods = false;
+                self.update_mods_before_launch = false;
+                return;
+            }
         };
 
         if !mod_ids.is_empty() && (self.dayz_path.is_none() || self.workshop_path.is_none()) {
@@ -396,6 +440,30 @@ impl App {
         self.asked_update_mods = false;
         self.update_mods_before_launch = false;
         self.finish_launch(args, history_entry);
+    }
+
+    fn legacy_launch_prep(&self) -> Option<LaunchPrep> {
+        if let Some(idx) = self.selected_server {
+            let server = self.servers.get(idx)?;
+            return Some(LaunchPrep {
+                target: LaunchTarget::KnownServer(idx),
+                mod_ids: server.mods.iter().map(|m| m.steam_workshop_id).collect(),
+                password: None,
+                offline_spawn_enabled: None,
+            });
+        }
+
+        self.direct_connect_target
+            .as_ref()
+            .map(|(ip, port)| LaunchPrep {
+                target: LaunchTarget::DirectConnect {
+                    ip: ip.clone(),
+                    port: *port,
+                },
+                mod_ids: Vec::new(),
+                password: None,
+                offline_spawn_enabled: None,
+            })
     }
 
     fn finish_launch(&mut self, args: Vec<String>, history_entry: Option<(String, String, u16)>) {
@@ -545,8 +613,14 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::profile::Profile;
+    use crate::server::types::ServerEndpoint;
     use crate::steam::ItemState;
+    use crate::server::Server;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::io::Read;
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
 
     fn test_app() -> App {
         let data_dir = std::env::temp_dir().join("dayz-cmd-tests-app");
@@ -574,6 +648,140 @@ mod tests {
             },
             Profile::default(),
         )
+    }
+
+    fn sample_server(name: &str, ip: &str, game_port: u16, mods: &[u64]) -> Server {
+        Server {
+            name: name.into(),
+            players: 12,
+            max_players: 60,
+            time: "12:00".into(),
+            time_acceleration: Some(4.0),
+            map: "chernarusplus".into(),
+            password: false,
+            battleye: true,
+            vac: true,
+            first_person_only: false,
+            shard: "public".into(),
+            version: "1.0".into(),
+            environment: "w".into(),
+            game_port,
+            endpoint: ServerEndpoint {
+                ip: ip.into(),
+                port: 27016,
+            },
+            mods: mods
+                .iter()
+                .copied()
+                .map(|id| crate::server::types::ServerMod {
+                    steam_workshop_id: id,
+                    name: format!("Mod {id}"),
+                })
+                .collect(),
+        }
+    }
+
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    struct FakeSteam {
+        old_path: Option<OsString>,
+        old_capture: Option<OsString>,
+        root: PathBuf,
+        capture: PathBuf,
+    }
+
+    impl FakeSteam {
+        fn install() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "dayz-cmd-fake-steam-{}-{}",
+                std::process::id(),
+                chrono::Utc::now().timestamp_nanos_opt().expect("timestamp")
+            ));
+            let bin_dir = root.join("bin");
+            fs::create_dir_all(&bin_dir).expect("create fake steam bin dir");
+            let capture = root.join("args.txt");
+            let steam = bin_dir.join("steam");
+            fs::write(
+                &steam,
+                "#!/bin/sh\nprintf '%s\n' \"$@\" > \"$FAKE_STEAM_ARGS\"\n",
+            )
+            .expect("write fake steam script");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = fs::metadata(&steam).expect("stat fake steam").permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&steam, perms).expect("chmod fake steam");
+            }
+
+            let old_path = std::env::var_os("PATH");
+            let old_capture = std::env::var_os("FAKE_STEAM_ARGS");
+            let new_path = match &old_path {
+                Some(existing) => format!("{}:{}", bin_dir.display(), existing.to_string_lossy()),
+                None => bin_dir.display().to_string(),
+            };
+            // Test-only process env mutation to steer Command::new("steam").
+            unsafe {
+                std::env::set_var("PATH", new_path);
+                std::env::set_var("FAKE_STEAM_ARGS", &capture);
+            }
+
+            Self {
+                old_path,
+                old_capture,
+                root,
+                capture,
+            }
+        }
+
+        fn launched_args(&self) -> Vec<String> {
+            use std::thread;
+            use std::time::Duration;
+
+            for _ in 0..50 {
+                if self.capture.exists() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+
+            let mut content = String::new();
+            fs::File::open(&self.capture)
+                .expect("open captured args")
+                .read_to_string(&mut content)
+                .expect("read captured args");
+            content
+                .lines()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+        }
+    }
+
+    impl Drop for FakeSteam {
+        fn drop(&mut self) {
+            // Restore the process env after the test-specific fake launcher.
+            unsafe {
+                if let Some(old_path) = &self.old_path {
+                    std::env::set_var("PATH", old_path);
+                } else {
+                    std::env::remove_var("PATH");
+                }
+
+                if let Some(old_capture) = &self.old_capture {
+                    std::env::set_var("FAKE_STEAM_ARGS", old_capture);
+                } else {
+                    std::env::remove_var("FAKE_STEAM_ARGS");
+                }
+            }
+
+            let _ = fs::remove_dir_all(&self.root);
+        }
     }
 
     #[test]
@@ -655,5 +863,125 @@ mod tests {
 
         assert!(app.available_update.is_none());
         assert_eq!(app.screen_stack.len(), 1);
+    }
+
+    #[test]
+    fn known_server_launch_reads_target_from_shared_launch_prep() {
+        let _guard = test_guard();
+        let fake_steam = FakeSteam::install();
+        let mut app = test_app();
+        app.servers = vec![
+            sample_server("Ignored Server", "10.0.0.1", 2302, &[]),
+            sample_server("Shared Prep Server", "10.0.0.2", 2402, &[123456789]),
+        ];
+        app.mods_db = crate::mods::ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 123456789".into(),
+                id: 123456789,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.dayz_path = Some(std::env::temp_dir().join("dayz-cmd-dayz-path"));
+        app.workshop_path = Some(std::env::temp_dir().join("dayz-cmd-workshop-path"));
+        fs::create_dir_all(app.dayz_path.as_ref().expect("dayz path")).expect("create dayz path");
+        fs::create_dir_all(app.workshop_path.as_ref().expect("workshop path"))
+            .expect("create workshop path");
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::KnownServer(1),
+            mod_ids: vec![123456789],
+            password: None,
+            offline_spawn_enabled: None,
+        });
+        app.selected_server = Some(0);
+
+        app.do_launch();
+
+        let args = fake_steam.launched_args();
+        assert!(args.iter().any(|arg| arg == "-connect=10.0.0.2"));
+        assert!(args.iter().any(|arg| arg == "-port=2402"));
+        assert!(args.iter().any(|arg| arg == "-mod=@123456789"));
+    }
+
+    #[test]
+    fn direct_connect_launch_reads_ip_port_mods_and_password_from_shared_launch_prep() {
+        let _guard = test_guard();
+        let fake_steam = FakeSteam::install();
+        let mut app = test_app();
+        app.mods_db = crate::mods::ModsDb {
+            sum: String::new(),
+            mods: vec![
+                crate::mods::ModInfo {
+                    name: "Mod 111".into(),
+                    id: 111,
+                    timestamp: 0,
+                    size: 0,
+                },
+                crate::mods::ModInfo {
+                    name: "Mod 222".into(),
+                    id: 222,
+                    timestamp: 0,
+                    size: 0,
+                },
+            ],
+        };
+        app.dayz_path = Some(std::env::temp_dir().join("dayz-cmd-dayz-path-direct"));
+        app.workshop_path = Some(std::env::temp_dir().join("dayz-cmd-workshop-path-direct"));
+        fs::create_dir_all(app.dayz_path.as_ref().expect("dayz path")).expect("create dayz path");
+        fs::create_dir_all(app.workshop_path.as_ref().expect("workshop path"))
+            .expect("create workshop path");
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::DirectConnect {
+                ip: "5.6.7.8".into(),
+                port: 2402,
+            },
+            mod_ids: vec![111, 222],
+            password: Some("secret".into()),
+            offline_spawn_enabled: None,
+        });
+        app.direct_connect_target = Some(("5.6.7.8".into(), 2402));
+
+        app.do_launch();
+
+        let args = fake_steam.launched_args();
+        assert!(args.iter().any(|arg| arg == "-connect=5.6.7.8"));
+        assert!(args.iter().any(|arg| arg == "-port=2402"));
+        assert!(args.iter().any(|arg| arg == "-mod=@111;@222"));
+        assert!(args.iter().any(|arg| arg == "-password=secret"));
+    }
+
+    #[test]
+    fn launch_consumes_one_shot_password_and_prep_state_after_building_args() {
+        let _guard = test_guard();
+        let fake_steam = FakeSteam::install();
+        let mut app = test_app();
+        app.dayz_path = Some(std::env::temp_dir().join("dayz-cmd-dayz-path-consume"));
+        app.workshop_path = Some(std::env::temp_dir().join("dayz-cmd-workshop-path-consume"));
+        fs::create_dir_all(app.dayz_path.as_ref().expect("dayz path")).expect("create dayz path");
+        fs::create_dir_all(app.workshop_path.as_ref().expect("workshop path"))
+            .expect("create workshop path");
+        app.launch_prep = Some(LaunchPrep {
+            target: LaunchTarget::DirectConnect {
+                ip: "9.8.7.6".into(),
+                port: 2502,
+            },
+            mod_ids: Vec::new(),
+            password: Some("one-shot".into()),
+            offline_spawn_enabled: Some(true),
+        });
+        app.direct_connect_target = Some(("9.8.7.6".into(), 2502));
+
+        app.do_launch();
+
+        assert!(fake_steam
+            .launched_args()
+            .iter()
+            .any(|arg| arg == "-password=one-shot"));
+        assert!(app
+            .launch_prep
+            .as_ref()
+            .and_then(|prep| prep.password.as_ref())
+            .is_none());
     }
 }
