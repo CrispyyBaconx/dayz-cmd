@@ -12,6 +12,16 @@ pub fn offline_state_path(config: &Config) -> PathBuf {
     offline_root(config).join("state.json")
 }
 
+pub fn staging_dir_for_tag(config: &Config, tag: &str) -> PathBuf {
+    offline_root(config)
+        .join("tmp")
+        .join(format!("install-{tag}"))
+}
+
+pub fn release_dir_for_tag(config: &Config, tag: &str) -> PathBuf {
+    offline_root(config).join("releases").join(tag)
+}
+
 pub fn load_offline_state(config: &Config) -> Result<OfflineState> {
     let path = offline_state_path(config);
     if !path.exists() {
@@ -38,6 +48,130 @@ pub fn save_offline_state(config: &Config, state: &OfflineState) -> Result<()> {
     fs::write(&tmp_path, json).context("write offline state temp file")?;
     fs::rename(&tmp_path, &path).context("promote offline state temp file")?;
     Ok(())
+}
+
+pub fn cleanup_stale_staging(config: &Config) -> Result<usize> {
+    let tmp_root = offline_root(config).join("tmp");
+    if !tmp_root.exists() {
+        return Ok(0);
+    }
+
+    let mut removed = 0usize;
+    for entry in fs::read_dir(&tmp_root).context("read offline tmp dir")? {
+        let entry = entry.context("read offline tmp entry")?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if path.is_dir() && name.starts_with("install-") {
+            fs::remove_dir_all(&path).with_context(|| {
+                format!("remove stale offline staging directory: {}", path.display())
+            })?;
+            removed += 1;
+        }
+    }
+
+    Ok(removed)
+}
+
+pub fn validate_extracted_release(staging_dir: &Path) -> Result<Vec<String>> {
+    let missions_dir = staging_dir.join("Missions");
+    if !missions_dir.is_dir() {
+        anyhow::bail!(
+            "extracted release is missing Missions directory: {}",
+            missions_dir.display()
+        );
+    }
+
+    let mut missions = Vec::new();
+    for entry in fs::read_dir(&missions_dir).with_context(|| {
+        format!(
+            "read missions directory for extracted release: {}",
+            missions_dir.display()
+        )
+    })? {
+        let entry = entry.context("read extracted release mission entry")?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let mission_name = entry.file_name().to_string_lossy().into_owned();
+        let client_file = path.join("core/CommunityOfflineClient.c");
+        if !client_file.is_file() {
+            anyhow::bail!(
+                "managed mission is missing CommunityOfflineClient.c: {}",
+                client_file.display()
+            );
+        }
+        missions.push(mission_name);
+    }
+
+    if missions.is_empty() {
+        anyhow::bail!(
+            "extracted release does not contain any missions: {}",
+            missions_dir.display()
+        );
+    }
+
+    missions.sort();
+    Ok(missions)
+}
+
+pub fn promote_release(config: &Config, tag: &str, staging_dir: &Path) -> Result<PathBuf> {
+    let release_dir = release_dir_for_tag(config, tag);
+    let release_parent = release_dir
+        .parent()
+        .context("release directory has no parent")?;
+    fs::create_dir_all(release_parent).context("create release parent directory")?;
+
+    let backup_dir = release_parent.join(format!(
+        "{}.previous",
+        release_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("release directory has no final segment")?
+    ));
+
+    if backup_dir.exists() {
+        fs::remove_dir_all(&backup_dir)
+            .with_context(|| format!("remove stale release backup: {}", backup_dir.display()))?;
+    }
+
+    let had_existing_release = release_dir.exists();
+    if had_existing_release {
+        fs::rename(&release_dir, &backup_dir).with_context(|| {
+            format!(
+                "move existing release aside before promotion: {} -> {}",
+                release_dir.display(),
+                backup_dir.display()
+            )
+        })?;
+    }
+
+    let promote_result = fs::rename(staging_dir, &release_dir).with_context(|| {
+        format!(
+            "promote staging release into place: {} -> {}",
+            staging_dir.display(),
+            release_dir.display()
+        )
+    });
+
+    match promote_result {
+        Ok(()) => {
+            if had_existing_release {
+                fs::remove_dir_all(&backup_dir).with_context(|| {
+                    format!("remove previous release backup: {}", backup_dir.display())
+                })?;
+            }
+            Ok(release_dir)
+        }
+        Err(err) => {
+            if had_existing_release && backup_dir.exists() {
+                let _ = fs::rename(&backup_dir, &release_dir);
+            }
+            Err(err)
+        }
+    }
 }
 
 pub fn mission_identity_key(
@@ -184,6 +318,78 @@ mod tests {
         assert!(err
             .to_string()
             .contains("existing mission identity requires a source path"));
+    }
+
+    #[test]
+    fn offline_storage_cleans_stale_staging_directories() {
+        let root = test_root("staging-clean");
+        fs::create_dir_all(&root).expect("create temp root");
+        let config = test_config(&root);
+        let stale_one = staging_dir_for_tag(&config, "v1.0.0");
+        let stale_two = staging_dir_for_tag(&config, "v2.0.0");
+        fs::create_dir_all(&stale_one).expect("create stale staging");
+        fs::create_dir_all(&stale_two).expect("create stale staging");
+        fs::write(root.join("offline/tmp/keep.txt"), "keep").expect("create unrelated file");
+
+        cleanup_stale_staging(&config).expect("cleanup staging");
+
+        assert!(!stale_one.exists());
+        assert!(!stale_two.exists());
+        assert!(root.join("offline/tmp/keep.txt").exists());
+    }
+
+    #[test]
+    fn offline_storage_validates_extracted_layout_before_promotion() {
+        let root = test_root("validate-release");
+        fs::create_dir_all(&root).expect("create temp root");
+        let staging = staging_dir_for_tag(&test_config(&root), "v1.0.0");
+        fs::create_dir_all(staging.join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core"))
+            .expect("create mission dir");
+        fs::write(
+            staging.join(
+                "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c",
+            ),
+            "HIVE_ENABLED = true;",
+        )
+        .expect("write mission file");
+
+        let missions = validate_extracted_release(&staging).expect("validate release");
+
+        assert_eq!(
+            missions,
+            vec!["DayZCommunityOfflineMode.ChernarusPlus".to_string()]
+        );
+    }
+
+    #[test]
+    fn offline_storage_promotes_validated_content_without_mutating_state_json() {
+        let root = test_root("promote-release");
+        fs::create_dir_all(&root).expect("create temp root");
+        let config = test_config(&root);
+        let state = OfflineState {
+            installed_tag: Some("v1.0.0".into()),
+            latest_known_tag: Some("v1.0.0".into()),
+            managed_missions: vec!["DayZCommunityOfflineMode.ChernarusPlus".into()],
+            last_check_ts: Some(1),
+        };
+        save_offline_state(&config, &state).expect("save state");
+        let staging = staging_dir_for_tag(&config, "v2.0.0");
+        fs::create_dir_all(staging.join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core"))
+            .expect("create staging");
+        fs::write(
+            staging.join(
+                "Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c",
+            ),
+            "HIVE_ENABLED = true;",
+        )
+        .expect("write staging mission");
+
+        promote_release(&config, "v2.0.0", &staging).expect("promote release");
+
+        assert!(release_dir_for_tag(&config, "v2.0.0")
+            .join("Missions/DayZCommunityOfflineMode.ChernarusPlus/core/CommunityOfflineClient.c")
+            .exists());
+        assert_eq!(load_offline_state(&config).expect("load state"), state);
     }
 
     fn test_root(name: &str) -> PathBuf {

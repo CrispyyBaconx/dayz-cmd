@@ -11,6 +11,12 @@ pub struct ReleaseInfo {
     pub tarball_url: String,
 }
 
+impl ReleaseInfo {
+    pub fn archive_file_name(&self) -> String {
+        format!("{}.tar.gz", self.tag)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct GithubRelease {
     tag_name: String,
