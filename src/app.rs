@@ -121,6 +121,16 @@ pub struct App {
 }
 
 impl App {
+    fn pop_current_screen(&mut self) {
+        self.screen_stack.pop();
+        if self.screen_stack.is_empty() {
+            self.running = false;
+        } else if let Some(mut screen) = self.screen_stack.pop() {
+            screen.on_enter(self);
+            self.screen_stack.push(screen);
+        }
+    }
+
     pub fn new(config: Config, profile: Profile) -> Self {
         App {
             running: true,
@@ -530,13 +540,11 @@ impl App {
         match action {
             Action::None => {}
             Action::Quit => self.running = false,
-            Action::PopScreen => {
-                self.screen_stack.pop();
-                if self.screen_stack.is_empty() {
-                    self.running = false;
-                } else if let Some(mut screen) = self.screen_stack.pop() {
-                    screen.on_enter(self);
-                    self.screen_stack.push(screen);
+            Action::PopScreen => self.pop_current_screen(),
+            Action::PopScreenAndLaunchGame => {
+                self.pop_current_screen();
+                if self.running {
+                    self.do_launch();
                 }
             }
             Action::PushScreen(id) => {
@@ -2691,6 +2699,48 @@ mod tests {
 
         assert!(app.running);
         assert!(app.launch_prep.is_some());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Steam client not available; start Steam before updating mods")
+        );
+
+        drop(path_env);
+        fs::remove_dir_all(&dayz_path).expect("remove dayz path");
+        fs::remove_dir_all(&workshop_path).expect("remove workshop path");
+        fs::remove_dir_all(bin_dir).expect("remove bin dir");
+    }
+
+    #[test]
+    fn confirming_mod_update_pops_the_dialog_before_launch_processing() {
+        let _guard = env_lock();
+        let bin_dir = temp_path("app-mod-update-confirm-bin");
+        setup_launch_bin(&bin_dir, false);
+        let path_env = prepend_path(&bin_dir);
+        let (dayz_path, workshop_path) = prepare_launch_paths("app-mod-update-confirm");
+        let mut app = test_app();
+        app.servers = vec![sample_server_with_mods(false, &[123456789])];
+        app.mods_db = ModsDb {
+            sum: String::new(),
+            mods: vec![crate::mods::ModInfo {
+                name: "Mod 123456789".into(),
+                id: 123456789,
+                timestamp: 0,
+                size: 0,
+            }],
+        };
+        app.dayz_path = Some(dayz_path.clone());
+        app.workshop_path = Some(workshop_path.clone());
+        app.prepare_known_server_launch(0);
+        app.skip_running_check_once = true;
+
+        app.process_action(Action::LaunchGame);
+        assert_eq!(app.screen_stack.len(), 2);
+
+        app.handle_key(crossterm::event::KeyEvent::from(
+            crossterm::event::KeyCode::Char('y'),
+        ));
+
+        assert_eq!(app.screen_stack.len(), 1);
         assert_eq!(
             app.status_message.as_deref(),
             Some("Steam client not available; start Steam before updating mods")

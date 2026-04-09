@@ -25,6 +25,7 @@ pub enum Action {
     Quit,
     PushScreen(ScreenId),
     PopScreen,
+    PopScreenAndLaunchGame,
     ReplaceScreen(ScreenId),
     LaunchGame,
     RunSelfUpdate,

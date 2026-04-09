@@ -9,14 +9,21 @@ use std::fs;
 use super::{Action, ConfirmAction, InfoScreenData, Screen, ScreenId, theme};
 use crate::app::App;
 
+const UPDATE_MODS_CONFIRM_TICKS: u16 = 40;
+
 pub struct ConfirmScreen {
     pub action: ConfirmAction,
     pub selected: bool,
+    remaining_ticks: Option<u16>,
 }
 
 impl ConfirmScreen {
     pub fn new(action: ConfirmAction) -> Self {
         Self {
+            remaining_ticks: match action {
+                ConfirmAction::UpdateModsBeforeLaunch => Some(UPDATE_MODS_CONFIRM_TICKS),
+                _ => None,
+            },
             action,
             selected: false,
         }
@@ -60,16 +67,26 @@ impl Screen for ConfirmScreen {
         f.render_widget(Clear, f.area());
         f.render_widget(Block::default(), f.area());
         let area = centered_rect(50, 30, f.area());
-        let lines = vec![
+        let mut lines = vec![
             Line::from(""),
             Line::from(Span::styled(self.message(), theme::WARNING)),
             Line::from(""),
-            Line::from(vec![
-                choice_span(self.yes_label(), self.selected),
-                Span::raw("    "),
-                choice_span(self.no_label(), !self.selected),
-            ]),
         ];
+
+        if let Some(remaining_ticks) = self.remaining_ticks {
+            let seconds = (remaining_ticks.saturating_add(3)) / 4;
+            lines.push(Line::from(Span::styled(
+                format!("Auto-skip in {seconds}s"),
+                theme::DIM,
+            )));
+            lines.push(Line::from(""));
+        }
+
+        lines.push(Line::from(vec![
+            choice_span(self.yes_label(), self.selected),
+            Span::raw("    "),
+            choice_span(self.no_label(), !self.selected),
+        ]));
 
         let para = Paragraph::new(lines)
             .alignment(Alignment::Center)
@@ -113,6 +130,23 @@ impl Screen for ConfirmScreen {
             _ => Action::None,
         }
     }
+
+    fn on_tick(&mut self, app: &mut App) -> Action {
+        let Some(remaining_ticks) = self.remaining_ticks else {
+            return Action::None;
+        };
+
+        if remaining_ticks == 0 {
+            return self.decline(app);
+        }
+
+        self.remaining_ticks = Some(remaining_ticks.saturating_sub(1));
+        if self.remaining_ticks == Some(0) {
+            self.decline(app)
+        } else {
+            Action::None
+        }
+    }
 }
 
 fn choice_span(label: &str, selected: bool) -> Span<'static> {
@@ -137,7 +171,7 @@ impl ConfirmScreen {
         match &self.action {
             ConfirmAction::UpdateModsBeforeLaunch => {
                 app.update_mods_before_launch = false;
-                Action::LaunchGame
+                Action::PopScreenAndLaunchGame
             }
             ConfirmAction::MigrateLegacy => Action::PopScreen,
             ConfirmAction::FixMaxMapCount => Action::PushScreen(ScreenId::Info(InfoScreenData {
@@ -154,7 +188,7 @@ impl ConfirmScreen {
             ConfirmAction::KillDayZ => match crate::launch::kill_dayz() {
                 Ok(()) => {
                     app.skip_running_check_once = true;
-                    Action::LaunchGame
+                    Action::PopScreenAndLaunchGame
                 }
                 Err(error) => {
                     app.status_message = Some(format!("Error: {error}"));
@@ -189,7 +223,7 @@ impl ConfirmScreen {
             }
             ConfirmAction::UpdateModsBeforeLaunch => {
                 app.update_mods_before_launch = true;
-                Action::LaunchGame
+                Action::PopScreenAndLaunchGame
             }
             ConfirmAction::FixMaxMapCount => match crate::config::fix_max_map_count() {
                 Ok(()) => Action::Quit,
@@ -414,7 +448,7 @@ mod tests {
 
         let action = screen.confirm(&mut app);
 
-        assert_eq!(action, Action::LaunchGame);
+        assert_eq!(action, Action::PopScreenAndLaunchGame);
         assert!(app.skip_running_check_once);
 
         drop(path_env);
@@ -573,6 +607,19 @@ mod tests {
 
         drop(home_env);
         fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn update_mods_confirm_times_out_to_skip_launch() {
+        let mut app = test_app(PathBuf::from("/tmp/dayz"), PathBuf::from("/tmp/workshop"));
+        app.update_mods_before_launch = true;
+        let mut screen = ConfirmScreen::new(ConfirmAction::UpdateModsBeforeLaunch);
+        screen.remaining_ticks = Some(1);
+
+        let action = screen.on_tick(&mut app);
+
+        assert_eq!(action, Action::PopScreenAndLaunchGame);
+        assert!(!app.update_mods_before_launch);
     }
 
     #[test]
